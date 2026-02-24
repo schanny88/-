@@ -70,10 +70,10 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
   background:var(--white);
   border:2px solid var(--blue-dark);
   border-top:none;border-radius:0 0 12px 12px;
-  overflow:hidden;table-layout:fixed;
+  overflow:visible;table-layout:fixed;
   box-shadow:var(--shadow-lg)
 }
-.dj-table td{border:1px solid #cdd8e8;padding:0;vertical-align:middle;font-size:12px;overflow:hidden}
+.dj-table td{border:1px solid #cdd8e8;padding:0;vertical-align:middle;font-size:12px;overflow:visible}
 
 /* 라벨 셀 */
 .lb{
@@ -428,7 +428,7 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
     <div class="gps-row">
       <div class="gps-dot" id="gpsDot"></div>
       <span class="gps-val" id="gpsVal">미수신</span>
-      <button class="gps-btn" id="gpsBtn" onclick="getGPS()">📍 위치받기</button>
+      <button class="gps-btn" id="gpsBtn" onclick="getGPS()" ontouchend="event.preventDefault();getGPS()">📍 위치받기</button>
     </div>
   </td>
 </tr>
@@ -615,8 +615,8 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
       <div class="ph-ph">
         <div class="ic">🗺️</div>
         <div class="ph-btns">
-          <button class="ph-choice" ontouchstart="" onclick="triggerPhoto(event,'pf0c')">📷 카메라</button>
-          <button class="ph-choice" ontouchstart="" onclick="triggerPhoto(event,'pf0g')">🖼️ 갤러리</button>
+          <button class="ph-choice" ontouchend="event.preventDefault();triggerPhoto(event,'pf0c')" onclick="triggerPhoto(event,'pf0c')">📷 카메라</button>
+          <button class="ph-choice" ontouchend="event.preventDefault();triggerPhoto(event,'pf0g')" onclick="triggerPhoto(event,'pf0g')">🖼️ 갤러리</button>
         </div>
       </div>
       <img id="pi0" src="" alt="">
@@ -632,8 +632,8 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
       <div class="ph-ph">
         <div class="ic">📍</div>
         <div class="ph-btns">
-          <button class="ph-choice" ontouchstart="" onclick="triggerPhoto(event,'pf1c')">📷 카메라</button>
-          <button class="ph-choice" ontouchstart="" onclick="triggerPhoto(event,'pf1g')">🖼️ 갤러리</button>
+          <button class="ph-choice" ontouchend="event.preventDefault();triggerPhoto(event,'pf1c')" onclick="triggerPhoto(event,'pf1c')">📷 카메라</button>
+          <button class="ph-choice" ontouchend="event.preventDefault();triggerPhoto(event,'pf1g')" onclick="triggerPhoto(event,'pf1g')">🖼️ 갤러리</button>
         </div>
       </div>
       <img id="pi1" src="" alt="">
@@ -651,8 +651,8 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
       <div class="ph-ph">
         <div class="ic">📸</div>
         <div class="ph-btns">
-          <button class="ph-choice" ontouchstart="" onclick="triggerPhoto(event,'pf2c')">📷 카메라</button>
-          <button class="ph-choice" ontouchstart="" onclick="triggerPhoto(event,'pf2g')">🖼️ 갤러리</button>
+          <button class="ph-choice" ontouchend="event.preventDefault();triggerPhoto(event,'pf2c')" onclick="triggerPhoto(event,'pf2c')">📷 카메라</button>
+          <button class="ph-choice" ontouchend="event.preventDefault();triggerPhoto(event,'pf2g')" onclick="triggerPhoto(event,'pf2g')">🖼️ 갤러리</button>
         </div>
       </div>
       <img id="pi2" src="" alt="">
@@ -668,8 +668,8 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
       <div class="ph-ph">
         <div class="ic">🔍</div>
         <div class="ph-btns">
-          <button class="ph-choice" ontouchstart="" onclick="triggerPhoto(event,'pf3c')">📷 카메라</button>
-          <button class="ph-choice" ontouchstart="" onclick="triggerPhoto(event,'pf3g')">🖼️ 갤러리</button>
+          <button class="ph-choice" ontouchend="event.preventDefault();triggerPhoto(event,'pf3c')" onclick="triggerPhoto(event,'pf3c')">📷 카메라</button>
+          <button class="ph-choice" ontouchend="event.preventDefault();triggerPhoto(event,'pf3g')" onclick="triggerPhoto(event,'pf3g')">🖼️ 갤러리</button>
         </div>
       </div>
       <img id="pi3" src="" alt="">
