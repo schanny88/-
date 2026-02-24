@@ -70,10 +70,10 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
   background:var(--white);
   border:2px solid var(--blue-dark);
   border-top:none;border-radius:0 0 12px 12px;
-  overflow:visible;table-layout:fixed;
+  overflow:hidden;table-layout:fixed;
   box-shadow:var(--shadow-lg)
 }
-.dj-table td{border:1px solid #cdd8e8;padding:0;vertical-align:middle;font-size:12px;overflow:visible}
+.dj-table td{border:1px solid #cdd8e8;padding:0;vertical-align:middle;font-size:12px;overflow:hidden}
 
 /* 라벨 셀 */
 .lb{
@@ -153,6 +153,22 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 }
 .gps-guide.show{display:flex}
 .gps-guide-ico{font-size:18px;flex-shrink:0}
+
+/* ── 갤러리 권한 안내 배너 (신규) ── */
+.gallery-guide{
+  display:none;background:#fce4ec;border:1px solid #f48fb1;
+  border-radius:8px;padding:10px 14px;margin:0 12px 8px;
+  font-size:12px;color:#880e4f;
+  align-items:flex-start;gap:8px;line-height:1.6
+}
+.gallery-guide.show{display:flex}
+.gallery-guide-ico{font-size:18px;flex-shrink:0}
+.gallery-guide-close{
+  margin-left:auto;background:none;border:none;
+  font-size:16px;cursor:pointer;color:#880e4f;opacity:.6;
+  padding:0 2px;line-height:1;align-self:flex-start;flex-shrink:0
+}
+.gallery-guide-close:active{opacity:1}
 
 /* 사진 */
 .photo-title{
@@ -363,6 +379,13 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
   <div id="gpsGuideMsg">위치 권한이 필요합니다. 브라우저 주소창 옆 🔒 아이콘 → 위치 → 허용 후 다시 눌러주세요.</div>
 </div>
 
+<!-- 갤러리 권한 안내 배너 (신규) -->
+<div class="gallery-guide" id="galleryGuide">
+  <div class="gallery-guide-ico">🖼️</div>
+  <div id="galleryGuideMsg"></div>
+  <button class="gallery-guide-close" onclick="document.getElementById('galleryGuide').classList.remove('show')">✕</button>
+</div>
+
 <!-- 사진 용량 경고 -->
 <div class="storage-warn" id="storageWarn">⚠️ <span id="storageWarnMsg">사진 용량이 크면 저장이 실패할 수 있어요.</span></div>
 
@@ -428,7 +451,7 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
     <div class="gps-row">
       <div class="gps-dot" id="gpsDot"></div>
       <span class="gps-val" id="gpsVal">미수신</span>
-      <button class="gps-btn" id="gpsBtn" onclick="getGPS()" ontouchend="event.preventDefault();getGPS()">📍 위치받기</button>
+      <button class="gps-btn" id="gpsBtn" onclick="getGPS()">📍 위치받기</button>
     </div>
   </td>
 </tr>
@@ -540,11 +563,6 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 <!-- ── 밸브실 현황 헤더 ── -->
 <tr><td class="lb-sec" colspan="6">밸브실 현황</td></tr>
 
-<!--
-  밸브실: □ × □ × □ m
-  6칸 테이블 → 라벨(colspan=2) + 입력×박스 3개 + m단위
-  구조: [라벨2칸] [칸1] [×] [칸2] [×] [칸3 + m]
--->
 <tr>
   <td class="lb-vert" rowspan="3"><span>밸브실</span></td>
   <td class="lb">밸브실크기</td>
@@ -615,8 +633,8 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
       <div class="ph-ph">
         <div class="ic">🗺️</div>
         <div class="ph-btns">
-          <button class="ph-choice" ontouchend="event.preventDefault();triggerPhoto(event,'pf0c')" onclick="triggerPhoto(event,'pf0c')">📷 카메라</button>
-          <button class="ph-choice" ontouchend="event.preventDefault();triggerPhoto(event,'pf0g')" onclick="triggerPhoto(event,'pf0g')">🖼️ 갤러리</button>
+          <button class="ph-choice" ontouchstart="" onclick="triggerPhoto(event,'pf0c')">📷 카메라</button>
+          <button class="ph-choice" ontouchstart="" onclick="triggerGallery(event,'pf0g')">🖼️ 갤러리</button>
         </div>
       </div>
       <img id="pi0" src="" alt="">
@@ -632,8 +650,8 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
       <div class="ph-ph">
         <div class="ic">📍</div>
         <div class="ph-btns">
-          <button class="ph-choice" ontouchend="event.preventDefault();triggerPhoto(event,'pf1c')" onclick="triggerPhoto(event,'pf1c')">📷 카메라</button>
-          <button class="ph-choice" ontouchend="event.preventDefault();triggerPhoto(event,'pf1g')" onclick="triggerPhoto(event,'pf1g')">🖼️ 갤러리</button>
+          <button class="ph-choice" ontouchstart="" onclick="triggerPhoto(event,'pf1c')">📷 카메라</button>
+          <button class="ph-choice" ontouchstart="" onclick="triggerGallery(event,'pf1g')">🖼️ 갤러리</button>
         </div>
       </div>
       <img id="pi1" src="" alt="">
@@ -651,8 +669,8 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
       <div class="ph-ph">
         <div class="ic">📸</div>
         <div class="ph-btns">
-          <button class="ph-choice" ontouchend="event.preventDefault();triggerPhoto(event,'pf2c')" onclick="triggerPhoto(event,'pf2c')">📷 카메라</button>
-          <button class="ph-choice" ontouchend="event.preventDefault();triggerPhoto(event,'pf2g')" onclick="triggerPhoto(event,'pf2g')">🖼️ 갤러리</button>
+          <button class="ph-choice" ontouchstart="" onclick="triggerPhoto(event,'pf2c')">📷 카메라</button>
+          <button class="ph-choice" ontouchstart="" onclick="triggerGallery(event,'pf2g')">🖼️ 갤러리</button>
         </div>
       </div>
       <img id="pi2" src="" alt="">
@@ -668,8 +686,8 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
       <div class="ph-ph">
         <div class="ic">🔍</div>
         <div class="ph-btns">
-          <button class="ph-choice" ontouchend="event.preventDefault();triggerPhoto(event,'pf3c')" onclick="triggerPhoto(event,'pf3c')">📷 카메라</button>
-          <button class="ph-choice" ontouchend="event.preventDefault();triggerPhoto(event,'pf3g')" onclick="triggerPhoto(event,'pf3g')">🖼️ 갤러리</button>
+          <button class="ph-choice" ontouchstart="" onclick="triggerPhoto(event,'pf3c')">📷 카메라</button>
+          <button class="ph-choice" ontouchstart="" onclick="triggerGallery(event,'pf3g')">🖼️ 갤러리</button>
         </div>
       </div>
       <img id="pi3" src="" alt="">
@@ -749,7 +767,6 @@ const MAKERS = {
   '기타':[],'':[]
 };
 
-// 밸브종류별 허용 형식 옵션
 const VFORM_OPTIONS = {
   '제수밸브': ['S.V', 'G.V', 'B.V'],
   '소화전':   ['지상식', '지하식'],
@@ -813,7 +830,6 @@ function updateVformOptions(vt) {
     o.value = v; o.textContent = v;
     sel.appendChild(o);
   });
-  // 직접입력 항상 마지막에 추가
   const od = document.createElement('option');
   od.value = '__d__'; od.textContent = '직접입력...';
   sel.appendChild(od);
@@ -838,19 +854,16 @@ function updateMakerOptions(vt) {
   document.getElementById('dt-maker').value = '';
 }
 
-/* 직접입력 토글 */
 function chkD(sel, wid) {
   document.getElementById(wid).classList.toggle('on', sel.value === '__d__');
   if (sel.value === '__d__') document.getElementById(wid).querySelector('input').focus();
 }
 
-/* 값 읽기 */
 function gv(sid, dtid) {
   const s = document.getElementById(sid);
   return s.value === '__d__' ? document.getElementById(dtid).value.trim() : s.value;
 }
 
-/* 개폐여부 */
 function selOC(v) {
   selOCVal = selOCVal === v ? '' : v;
   document.getElementById('oc-open').classList.toggle('on', selOCVal === 'OPEN');
@@ -859,8 +872,6 @@ function selOC(v) {
 
 /* ═══════════════════════════════
    GPS + 역지오코딩
-   → 권한 거부 시 안내 배너 표시
-   → 성공 시 주소칸 자동입력 (수정 가능)
 ═══════════════════════════════ */
 function getGPS() {
   const dot   = document.getElementById('gpsDot');
@@ -879,7 +890,6 @@ function getGPS() {
   btn.textContent = '⏳ 수신 중...';
   btn.disabled = true;
 
-  // Permissions API로 현재 권한 상태 확인 → 거부 상태면 바로 안내
   const doRequest = () => {
     navigator.geolocation.getCurrentPosition(
       async pos => {
@@ -909,7 +919,6 @@ function getGPS() {
     );
   };
 
-  // Permissions API 지원 시 사전 상태 확인
   if (navigator.permissions) {
     navigator.permissions.query({ name: 'geolocation' }).then(result => {
       if (result.state === 'denied') {
@@ -919,19 +928,17 @@ function getGPS() {
         btn.disabled = false;
         showGuide('위치 권한이 이미 거부되어 있어요.<br><br>📱 <b>iPhone/iPad</b><br>설정 앱 → 개인정보 보호 및 보안 → 위치 서비스 → Safari → "앱을 사용하는 동안" 선택<br><br>🤖 <b>Android</b><br>브라우저 주소창 🔒 아이콘 탭 → 권한 → 위치 → 허용<br><br>설정 변경 후 페이지를 새로고침해 주세요.');
       } else {
-        // prompt(미결정) 또는 granted → 바로 요청 (prompt면 OS 팝업 뜸)
         doRequest();
       }
-    }).catch(() => doRequest()); // Permissions API 실패 시 그냥 요청
+    }).catch(() => doRequest());
   } else {
-    doRequest(); // Permissions API 없으면 바로 요청 (iOS Safari 등)
+    doRequest();
   }
 }
 
 function showGuide(msg) {
   const guide = document.getElementById('gpsGuide');
   const msgEl = document.getElementById('gpsGuideMsg');
-  // 줄바꿈 처리
   msgEl.innerHTML = msg.replace(/\n/g, '<br>');
   guide.classList.add('show');
   guide.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -952,13 +959,9 @@ async function reverseGeocode(lat, lng) {
         a.house_number || ''
       ].filter(Boolean);
       const addr = parts.join(' ').trim() || data.display_name;
-      // 주소칸에 자동입력 (수정 가능)
       const addrEl = document.getElementById('f-addr');
-      if (!addrEl.value) addrEl.value = addr;  // 이미 입력된 경우 덮어쓰지 않음
-      else {
-        // 이미 입력된 값이 있으면 대체 여부 묻지 않고 GPS주소를 placeholder로 힌트만
-        addrEl.placeholder = addr;
-      }
+      if (!addrEl.value) addrEl.value = addr;
+      else addrEl.placeholder = addr;
       gpsData.addr = addr;
       showToast('📮 GPS 주소 자동입력 완료!');
       return;
@@ -967,23 +970,102 @@ async function reverseGeocode(lat, lng) {
   showToast('⚠️ 주소 변환 실패 — 좌표만 저장됩니다');
 }
 
-/* 카메라 or 갤러리 input 트리거 */
+/* ═══════════════════════════════
+   갤러리 권한 안내 (신규)
+   iOS: "사진" 권한 / Android: "파일 및 미디어" 권한
+═══════════════════════════════ */
+function showGalleryGuide(msg) {
+  const guide = document.getElementById('galleryGuide');
+  document.getElementById('galleryGuideMsg').innerHTML = msg;
+  guide.classList.add('show');
+  guide.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+/**
+ * 갤러리 버튼 클릭 → Permissions API로 사전 확인 후
+ * 거부 상태이면 안내 배너를 띄우고, 허용/미결정이면 바로 input 클릭
+ */
+async function triggerGallery(e, inputId) {
+  e.preventDefault();
+  e.stopPropagation();
+
+  // 갤러리 안내 배너가 이미 보이면 닫기
+  document.getElementById('galleryGuide').classList.remove('show');
+
+  // Permissions API 지원 + 'storage-access' or 'camera' 로 사전확인
+  // 브라우저별 갤러리 전용 권한 API가 없으므로
+  // 실제 파일 선택 창 오픈 후 파일이 안 들어오면 안내 표시
+  const inp = document.getElementById(inputId);
+  if (!inp) return;
+  inp.value = '';
+
+  // 타임아웃 방식: 창을 열었는데 일정 시간 내 change가 없으면 안내
+  // (권한 거부 시 iOS/Android에서 창 자체가 안 뜨거나 빈 결과)
+  let guided = false;
+
+  const onFocusBack = () => {
+    // 창이 닫힌 뒤 파일이 선택됐는지 확인 (300ms 후)
+    setTimeout(() => {
+      if (!guided && inp.value === '') {
+        // 파일이 선택되지 않은 경우 — 취소 또는 권한 거부 가능성
+        // iOS에서 권한 거부 시 아예 창이 안 열리므로 안내
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+        const isAndroid = /Android/.test(navigator.userAgent);
+        if (isIOS) {
+          showGalleryGuide(
+            '사진 접근이 차단됐을 수 있어요.<br><br>' +
+            '📱 <b>iPhone/iPad 설정 방법</b><br>' +
+            '① 설정 앱 열기<br>' +
+            '② 개인정보 보호 및 보안 → 사진<br>' +
+            '③ Safari(또는 사용 중인 브라우저) → <b>"모든 사진" 또는 "읽기 및 쓰기"</b> 선택<br><br>' +
+            '설정 변경 후 페이지를 새로고침하고 다시 눌러주세요.'
+          );
+        } else if (isAndroid) {
+          showGalleryGuide(
+            '사진/파일 접근이 차단됐을 수 있어요.<br><br>' +
+            '🤖 <b>Android 설정 방법</b><br>' +
+            '① 브라우저 주소창 왼쪽 🔒 또는 ⓘ 아이콘 탭<br>' +
+            '② 권한 → 사진 및 미디어(또는 파일) → <b>허용</b><br><br>' +
+            '또는 설정 → 앱 → 브라우저 → 권한 → 저장공간/미디어 허용<br><br>' +
+            '설정 변경 후 다시 눌러주세요.'
+          );
+        }
+        // 데스크탑이나 기타 환경에서는 안내 불필요 (그냥 취소한 것)
+      }
+      window.removeEventListener('focus', onFocusBack);
+    }, 300);
+  };
+
+  // 창이 닫힐 때 (window focus 복귀) 감지
+  window.addEventListener('focus', onFocusBack);
+
+  // 실제로 파일이 선택되면 guided 플래그 설정
+  const onchange = () => { guided = true; };
+  inp.addEventListener('change', onchange, { once: true });
+
+  inp.click();
+}
+
+/* 카메라 input 트리거 (기존 유지) */
 function triggerPhoto(e, inputId) {
   e.preventDefault();
   e.stopPropagation();
   const inp = document.getElementById(inputId);
   if (inp) {
-    inp.value = ''; // 같은 파일 재선택 허용
+    inp.value = '';
     inp.click();
   }
 }
+
 /* ═══════════════════════════════
    사진 처리
 ═══════════════════════════════ */
+function formatBytes(b) {
   if (b < 1024) return b + 'B';
   if (b < 1024*1024) return (b/1024).toFixed(0) + 'KB';
   return (b/1024/1024).toFixed(1) + 'MB';
 }
+
 function handlePhoto(e, i) {
   const f = e.target.files[0]; if (!f) return;
   const r = new FileReader();
@@ -997,10 +1079,13 @@ function handlePhoto(e, i) {
     sizeEl.textContent = formatBytes(bytes);
     sizeEl.classList.toggle('warn', bytes > PHOTO_LIMIT_BYTES);
     checkStorageSize();
+    // 사진이 성공적으로 로드되면 갤러리 안내 배너 닫기
+    document.getElementById('galleryGuide').classList.remove('show');
   };
   r.readAsDataURL(f);
   e.target.value = '';
 }
+
 function delPhoto(e, i) {
   e.stopPropagation();
   photos[i] = null;
@@ -1009,6 +1094,7 @@ function delPhoto(e, i) {
   document.getElementById('ps'+i).textContent = '';
   checkStorageSize();
 }
+
 function checkStorageSize() {
   const total = photos.filter(Boolean).reduce((s,p) => s + p.length*0.75, 0);
   const warn  = document.getElementById('storageWarn');
@@ -1031,7 +1117,6 @@ function saveRecord() {
     showToast('⚠️ 조사연번 또는 관리번호를 입력하세요'); return;
   }
   const seqno = g('f-seqno') || getNextSeqno();
-  // 밸브실 크기 조합
   const vr1 = g('f-vroom1'), vr2 = g('f-vroom2'), vr3 = g('f-vroom3');
   const vroomSize = (vr1||vr2||vr3) ? `${vr1||'?'} × ${vr2||'?'} × ${vr3||'?'} m` : '';
 
@@ -1094,6 +1179,7 @@ function resetForm() {
   });
   document.getElementById('storageWarn').classList.remove('show');
   document.getElementById('gpsGuide').classList.remove('show');
+  document.getElementById('galleryGuide').classList.remove('show');
   gpsData = null;
   document.getElementById('gpsDot').classList.remove('on');
   document.getElementById('gpsVal').textContent = '미수신';
