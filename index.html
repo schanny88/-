@@ -6,6 +6,92 @@
 <title>밸브류 관리대장 v1.0</title>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script type="module">
+/* ═══════════════════════════════
+   Firebase 초기화 & Firestore 연동
+═══════════════════════════════ */
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
+import { getFirestore, collection, doc, setDoc, getDocs, deleteDoc, onSnapshot, writeBatch }
+  from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCTXpgGzueSLWm5cOwVkDCI6Gks6U5AoFA",
+  authDomain: "sonny-14d1c.firebaseapp.com",
+  projectId: "sonny-14d1c",
+  storageBucket: "sonny-14d1c.firebasestorage.app",
+  messagingSenderId: "278761673958",
+  appId: "1:278761673958:web:a1c31644fa9b6a03ac1727"
+};
+
+const fbApp  = initializeApp(firebaseConfig);
+const db     = getFirestore(fbApp);
+const COL    = 'valve-records';
+
+// ── 전역에 노출 (기존 JS에서 호출 가능하도록) ──
+window._db    = db;
+window._col   = COL;
+window._fbReady = true;
+
+// ── Firestore → 로컬 실시간 동기화 ──
+onSnapshot(collection(db, COL), (snapshot) => {
+  if (!snapshot || snapshot.empty) return;
+  const fbRecords = [];
+  snapshot.forEach(d => fbRecords.push(d.data()));
+
+  // 사진 제외 필드만 동기화 (용량 절약 — 사진은 로컬 유지)
+  fbRecords.forEach(fb => {
+    const idx = window._records ? window._records.findIndex(r => String(r.id) === String(fb.id)) : -1;
+    if (idx >= 0) {
+      // 기존 레코드 업데이트 (사진은 로컬 것 유지)
+      const localPhotos = window._records[idx].photos;
+      window._records[idx] = { ...fb, photos: localPhotos || fb.photos || [] };
+    } else if (window._records) {
+      window._records.push(fb);
+    }
+  });
+
+  if (window._records) {
+    window._records.sort((a,b) => (parseInt(a.seqno)||0)-(parseInt(b.seqno)||0));
+    try { localStorage.setItem('valve-v7', JSON.stringify(window._records)); } catch(e) {}
+    if (window.renderList) window.renderList();
+    if (window.updateBadge) window.updateBadge();
+  }
+});
+
+// ── Firestore 저장 함수 (사진 제외, 용량 절약) ──
+window.fbSaveRecord = async function(rec) {
+  if (!window._db) return;
+  try {
+    const data = { ...rec };
+    delete data.photos; // 사진은 Firestore에 저장 안 함 (용량 초과 방지)
+    await setDoc(doc(db, COL, String(rec.id)), data);
+  } catch(e) { console.warn('Firestore 저장 오류:', e); }
+};
+
+// ── Firestore 삭제 함수 ──
+window.fbDeleteRecord = async function(id) {
+  if (!window._db) return;
+  try { await deleteDoc(doc(db, COL, String(id))); }
+  catch(e) { console.warn('Firestore 삭제 오류:', e); }
+};
+
+// ── 전체 업로드 (불러오기 후 Firestore에 일괄 동기화) ──
+window.fbSyncAll = async function(recs) {
+  if (!window._db) return;
+  try {
+    const batch = writeBatch(db);
+    recs.forEach(r => {
+      const data = { ...r };
+      delete data.photos;
+      batch.set(doc(db, COL, String(r.id)), data);
+    });
+    await batch.commit();
+    console.log('Firestore 전체 동기화 완료');
+  } catch(e) { console.warn('Firestore 동기화 오류:', e); }
+};
+
+console.log('✅ Firebase 초기화 완료');
+</script>
 <style>
 :root {
   --bg:#f0f4f8;
@@ -422,6 +508,7 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
     </div>
     <div class="header-right">
       <span class="ver-badge">v1.0</span>
+      <span id="fbStatus" style="font-size:10px;padding:3px 8px;border-radius:10px;background:rgba(255,255,255,.1);color:#90caf9;margin-right:2px">🔄</span>
       <span class="header-badge" id="recordCount">0건</span>
     </div>
   </div>
@@ -786,6 +873,9 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
       </select>
       <button class="exp-btn" onclick="exportExcelTemplate()" title="기존 조서 엑셀에 데이터 추가">📋 조서저장</button>
       <button class="exp-btn" onclick="exportExcel()" title="새 엑셀 파일로 내보내기" style="background:linear-gradient(135deg,#2e7d32,#388e3c)">📊 새파일</button>
+      <button class="exp-btn" onclick="exportJSON()" title="데이터 백업 / PC 전송용" style="background:linear-gradient(135deg,#6a1b9a,#8e24aa)">💾 백업</button>
+      <button class="exp-btn" onclick="document.getElementById('importJSON').click()" title="백업 파일 불러오기" style="background:linear-gradient(135deg,#e65100,#f57c00)">📂 불러오기</button>
+      <input type="file" id="importJSON" accept=".json" style="display:none" onchange="importJSON(event)">
     </div>
     <input class="srch" type="search" placeholder="🔍  관리번호, 주소, 연번 검색..." id="searchBox" oninput="renderList()">
     <div id="listContainer"></div>
@@ -852,6 +942,11 @@ const STORAGE_WARN_BYTES = 4 * 1024 * 1024;
 // photos[0],[1] = 위치상세도,위치도 (내부작업 → null 고정)
 // photos[2],[3] = 사진대지 원경/근경
 let photos = [null,null,null,null], gpsData = null, selOCVal = '', selValveStateVal = '', records = [];
+// Firebase 모듈에서 접근할 수 있도록 전역 미러링
+Object.defineProperty(window, '_records', {
+  get() { return records; },
+  set(v) { records = v; }
+});
 
 /* ═══════════════════════════════
    초기화
@@ -1271,6 +1366,8 @@ function saveRecord() {
   if (saveRecords()) {
     showToast('✅ 저장 완료!  #' + rec.seqno);
     resetForm(); updateBadge();
+    // Firebase 동기화
+    if (window.fbSaveRecord) window.fbSaveRecord(rec);
   } else {
     records.shift();
     showToast('❌ 저장 실패! 사진 용량을 줄여보세요.');
@@ -1458,6 +1555,8 @@ function deleteRecord(id) {
   records = records.filter(r => r.id !== id);
   saveRecords(); closeModal(); renderList(); updateBadge();
   showToast('🗑 삭제되었습니다');
+  // Firebase 동기화
+  if (window.fbDeleteRecord) window.fbDeleteRecord(id);
 }
 
 /* ═══════════════════════════════
@@ -1733,6 +1832,81 @@ function showToast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg; t.classList.add('on');
   setTimeout(() => t.classList.remove('on'), 2800);
+}
+
+/* ═══════════════════════════════
+   JSON 백업 내보내기 (모바일→PC 연동)
+═══════════════════════════════ */
+function exportJSON() {
+  if (!records.length) { showToast('내보낼 기록이 없습니다'); return; }
+  const data = JSON.stringify({ version: 1, exportedAt: new Date().toISOString(), records }, null, 2);
+  const blob = new Blob([data], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  const date = new Date().toISOString().split('T')[0];
+  a.href     = url;
+  a.download = `밸브대장_백업_${date}.json`;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(url); document.body.removeChild(a); }, 1500);
+  showToast(`💾 백업 완료! ${records.length}건 저장됨`);
+}
+
+/* ═══════════════════════════════
+   JSON 백업 불러오기 (PC에서 모바일 데이터 합치기)
+═══════════════════════════════ */
+function importJSON(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    try {
+      const parsed = JSON.parse(ev.target.result);
+      const imported = parsed.records || parsed; // 구버전 호환
+      if (!Array.isArray(imported)) throw new Error('올바른 백업 파일이 아닙니다');
+
+      // 기존 id/seqno 기준으로 중복 병합
+      const existingIds  = new Set(records.map(r => r.id));
+      const existingSeqs = new Map(records.map(r => [String(r.seqno), r]));
+
+      let addedCount   = 0;
+      let updatedCount = 0;
+
+      imported.forEach(r => {
+        if (existingIds.has(r.id)) {
+          // 동일 id → 최신 데이터로 덮어쓰기
+          const idx = records.findIndex(x => x.id === r.id);
+          records[idx] = r;
+          updatedCount++;
+        } else if (existingSeqs.has(String(r.seqno))) {
+          // 동일 연번 → 덮어쓰기
+          const idx = records.findIndex(x => String(x.seqno) === String(r.seqno));
+          records[idx] = r;
+          updatedCount++;
+        } else {
+          records.push(r);
+          addedCount++;
+        }
+      });
+
+      // 연번순 정렬
+      records.sort((a, b) => (parseInt(a.seqno)||0) - (parseInt(b.seqno)||0));
+
+      if (saveRecords()) {
+        renderList();
+        updateBadge();
+        showToast(`📂 불러오기 완료! 신규 ${addedCount}건 추가, ${updatedCount}건 업데이트`);
+        // Firebase 전체 동기화
+        if (window.fbSyncAll) window.fbSyncAll(records);
+      } else {
+        showToast('❌ 저장 실패 — 용량 초과일 수 있어요 (사진 확인)');
+      }
+    } catch(err) {
+      showToast('❌ 파일 오류: ' + err.message);
+    }
+    e.target.value = ''; // 같은 파일 재선택 가능하게
+  };
+  reader.readAsText(file);
 }
 
 /* ═══════════════════════════════
