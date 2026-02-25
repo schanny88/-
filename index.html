@@ -306,6 +306,14 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
   user-select:auto !important;
 }
 
+/* 비고 칸 비활성 클래스 — 맨홀철개/밸브실크기와 동일한 opacity */
+#vroom-remark-inp.remark-disabled{
+  opacity:.35;pointer-events:none;user-select:none;background:#f0f0f0
+}
+#vroom-remark-inp.remark-disabled select{
+  background:#f0f0f0;color:#aaa;cursor:not-allowed
+}
+
 /* 소형철개 행 — disabled 자체를 막음(JS에서도 처리) */
 .vroom-row-smcover td{
   opacity:1 !important;
@@ -1064,6 +1072,7 @@ function applyVremarkDisabled(disabled){
   const sel  = document.getElementById('f-vremark');
   const dw   = document.getElementById('dw-vremark');
   const dt   = document.getElementById('dt-vremark');
+  const lb   = document.getElementById('vroom-remark-lb');
   const inp  = document.getElementById('vroom-remark-inp');
   if(!sel) return;
   if(disabled){
@@ -1074,10 +1083,11 @@ function applyVremarkDisabled(disabled){
     sel.style.cursor = '';
     if(dw) dw.classList.remove('on');
     if(dt) dt.value = '';
-    if(inp) { inp.style.opacity='0.35'; inp.style.pointerEvents='none'; inp.style.userSelect='none'; }
+    /* 입력칸만 비활성 — 맨홀철개/밸브실크기와 동일한 opacity:.35 */
+    if(inp) inp.classList.add('remark-disabled');
   } else {
     sel.disabled = false;
-    if(inp) { inp.style.opacity=''; inp.style.pointerEvents=''; inp.style.userSelect=''; }
+    if(inp) inp.classList.remove('remark-disabled');
   }
 }
 
@@ -1334,7 +1344,7 @@ async function saveRecord(){
   if(saveRecords()){
     if(window.fbSaveRecord){ await window.fbSaveRecord(rec); }
     [2,3].forEach(i=>{ document.getElementById('pu'+i).classList.remove('on'); });
-    showToast('✅ 저장 완료!  #'+rec.seqno);
+    showToast('✅ 저장 완료!  #'+rec.seqno+'  (블록 유지됨)');
     btn.disabled=false; btn.textContent='💾 관리대장 저장';
     resetForm(); updateBadge();
   } else {
@@ -1347,19 +1357,58 @@ async function saveRecord(){
 
 /* ── 폼 초기화 ── */
 function resetForm(){
-  ['f-mgmtno','f-addr','f-bigblock','f-midblock','f-smallblock','f-installyear','f-totalrot','f-currot','f-depth','f-notes',
-   'f-vroom1','f-vroom2','f-vroom3','dt-vform','dt-maker','dt-dia','dt-material','dt-protbox','dt-smcover','dt-manhole','dt-vremark','dt-smallblock']
+  /* ── 블록값 저장 후 복원 (같은 장소 연속 입력 편의) ── */
+  const keepBig      = document.getElementById('f-bigblock').value;
+  const keepMid      = document.getElementById('f-midblock').value;
+  const keepMidDt    = document.getElementById('dt-midblock').value;
+  const keepSmall    = document.getElementById('f-smallblock').value;
+  const keepSmallDt  = document.getElementById('dt-smallblock').value;
+
+  ['f-mgmtno','f-addr','f-installyear','f-totalrot','f-currot','f-depth','f-notes',
+   'f-vroom1','f-vroom2','f-vroom3','dt-vform','dt-maker','dt-dia','dt-material','dt-protbox','dt-smcover','dt-manhole','dt-vremark']
     .forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
-  ['f-vtype','f-drive','f-rotation','f-dia','f-material','f-protbox','f-smcover','f-manhole','f-vremark','f-bigblock','f-midblock','f-smallblock']
+  ['f-vtype','f-drive','f-rotation','f-dia','f-material','f-protbox','f-smcover','f-manhole','f-vremark']
     .forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
-  const dwMid=document.getElementById('dw-midblock'); if(dwMid) dwMid.classList.remove('on');
-  const dtMid=document.getElementById('dt-midblock'); if(dtMid) dtMid.value='';
-  onBigblockChange();
-  const dwSmall=document.getElementById('dw-smallblock'); if(dwSmall) dwSmall.classList.remove('on');
-  const dtSmall=document.getElementById('dt-smallblock'); if(dtSmall) dtSmall.value='';
+
+  /* 중블록 직접입력 dw 처리 (직접입력 상태였으면 유지) */
+  const dwMid=document.getElementById('dw-midblock');
+  if(keepMid === '__d__'){
+    if(dwMid) dwMid.classList.add('on');
+    document.getElementById('dt-midblock').value = keepMidDt;
+  } else {
+    if(dwMid) dwMid.classList.remove('on');
+    document.getElementById('dt-midblock').value = '';
+  }
+
+  /* 대블록 기준으로 중블록 옵션 다시 채우고 값 복원 */
+  document.getElementById('f-bigblock').value = keepBig;
+  onBigblockChange();  /* 이 안에서 중·소블록 초기화됨 — 아래서 다시 복원 */
+
+  /* 중블록 복원 */
+  document.getElementById('f-midblock').value = keepMid;
+  if(keepMid === '__d__'){
+    if(dwMid) dwMid.classList.add('on');
+    document.getElementById('dt-midblock').value = keepMidDt;
+  }
+
+  /* 소블록: 중블록 기준 옵션 다시 채우고 값 복원 */
+  onMidblockChange();
+  document.getElementById('f-smallblock').value = keepSmall;
+  const dwSmall=document.getElementById('dw-smallblock');
+  if(keepSmall === '__d__'){
+    if(dwSmall) dwSmall.classList.add('on');
+    document.getElementById('dt-smallblock').value = keepSmallDt;
+  } else {
+    if(dwSmall) dwSmall.classList.remove('on');
+    document.getElementById('dt-smallblock').value = '';
+  }
   updateVformOptions(''); updateMakerOptions('');
   document.getElementById('f-seqno').value=getNextSeqno();
-  document.querySelectorAll('.dw').forEach(el=>el.classList.remove('on'));
+  /* 블록 직접입력 dw는 복원값 유지, 나머지만 닫기 */
+  document.querySelectorAll('.dw').forEach(el=>{
+    if(['dw-midblock','dw-smallblock'].includes(el.id)) return;
+    el.classList.remove('on');
+  });
   selOCVal=''; ['oc-open','oc-close','oc-possible','oc-impossible'].forEach(id=>document.getElementById(id).classList.remove('on'));
   applyVtypeBlank(true);
   selValveStateVal=''; applyValveSectionDisabled(false); applyVremarkDisabled(true);
