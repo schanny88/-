@@ -809,19 +809,30 @@ function getGPS(){
   if(navigator.permissions){ navigator.permissions.query({name:'geolocation'}).then(r=>{ if(r.state==='denied'){dot.classList.remove('on');val.textContent='권한 거부됨';btn.textContent='📍 위치받기';btn.disabled=false;showGuide('위치 권한이 거부되어 있어요. 설정에서 허용 후 새로고침해 주세요.');} else doReq(); }).catch(()=>doReq()); } else doReq();
 }
 function showGuide(msg){ const g=document.getElementById('gpsGuide'); document.getElementById('gpsGuideMsg').innerHTML=msg.replace(/\n/g,'<br>'); g.classList.add('show'); g.scrollIntoView({behavior:'smooth',block:'nearest'}); }
-async function reverseGeocode(lat,lng){
-  try{
-    const res=await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&accept-language=ko`,{headers:{'Accept-Language':'ko'}});
-    const data=await res.json();
-    if(data?.address){
-      const a=data.address;
-      const parts=[a.province||a.state||'',a.city||a.county||a.town||'',a.suburb||a.neighbourhood||a.quarter||'',a.road||'',a.house_number||''].filter(Boolean);
-      const addr=parts.join(' ').trim()||data.display_name;
-      const addrEl=document.getElementById('f-addr');
-      if(!addrEl.value) addrEl.value=addr; else addrEl.placeholder=addr;
-      gpsData.addr=addr; showToast('📮 GPS 주소 자동입력 완료!'); return;
+async function reverseGeocode(lat, lng) {
+  const VWORLD_KEY = '53D67195-1F29-32E8-B78A-3BE69020AF6E';
+  try {
+    const url = `https://api.vworld.kr/req/address?service=address&request=getAddress&version=2.0&crs=epsg:4326&point=${lng},${lat}&format=json&type=both&zipcode=true&simple=false&key=${VWORLD_KEY}`;
+    const res  = await fetch(url);
+    const data = await res.json();
+
+    if (data?.response?.status === 'OK') {
+      const results = data.response.result;
+      // 도로명 주소 우선, 없으면 지번 주소
+      const road   = results?.find(r => r.type === 'road');
+      const parcel = results?.find(r => r.type === 'parcel');
+      const addr   = road?.text || parcel?.text || '';
+
+      if (addr) {
+        const addrEl = document.getElementById('f-addr');
+        if (!addrEl.value) addrEl.value = addr;
+        else addrEl.placeholder = addr;
+        gpsData.addr = addr;
+        showToast('📮 GPS 주소 자동입력 완료!');
+        return;
+      }
     }
-  }catch(e){console.warn('geocode fail',e);}
+  } catch(e) { console.warn('Vworld geocode fail', e); }
   showToast('⚠️ 주소 변환 실패 — 좌표만 저장됩니다');
 }
 
