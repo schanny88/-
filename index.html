@@ -321,6 +321,7 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 .stat-lbl{font-size:10px;color:var(--muted);margin-top:2px}
 .r-card{background:#fff;border:1px solid #dde4ef;border-radius:12px;margin-bottom:10px;overflow:hidden;cursor:pointer;box-shadow:var(--shadow);transition:transform .15s,box-shadow .15s}
 .r-card:active{transform:scale(.99);box-shadow:0 0 0 3px rgba(30,95,173,.15)}
+.r-card-selected{box-shadow:0 0 0 3px rgba(198,40,40,.5)!important;border-color:#ef9a9a!important}
 .r-head{background:linear-gradient(135deg,var(--blue-dark),var(--blue-mid));color:#fff;padding:11px 14px;display:flex;justify-content:space-between;align-items:center;gap:8px}
 .r-seq{font-family:'JetBrains Mono',monospace;font-size:12px;background:rgba(255,255,255,.15);padding:2px 8px;border-radius:5px;white-space:nowrap}
 .r-ttl{font-size:14px;font-weight:700;flex:1}
@@ -665,11 +666,15 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
         <option>제수밸브</option><option>소화전</option><option>공기밸브</option>
         <option>감압밸브</option><option>역지밸브</option><option>이토밸브</option><option>기타</option>
       </select>
-      <button class="exp-btn" onclick="exportExcelTemplate()">📋 조서저장</button>
-      <button class="exp-btn" onclick="exportExcel()" style="background:linear-gradient(135deg,#2e7d32,#388e3c)">📊 새파일</button>
-      <button class="exp-btn" onclick="exportJSON()" style="background:linear-gradient(135deg,#6a1b9a,#8e24aa)">💾 백업</button>
-      <button class="exp-btn" onclick="document.getElementById('importJSON').click()" style="background:linear-gradient(135deg,#e65100,#f57c00)">📂 불러오기</button>
-      <input type="file" id="importJSON" accept=".json" style="display:none" onchange="importJSON(event)">
+      <button class="exp-btn" onclick="exportExcel()" style="background:linear-gradient(135deg,#2e7d32,#388e3c)">📊 엑셀저장</button>
+      <button class="exp-btn" id="deleteModeBtn" onclick="toggleDeleteMode()" style="background:linear-gradient(135deg,#c62828,#e53935)">🗑 삭제</button>
+    </div>
+    <div id="deleteActionBar" style="display:none;background:#ffebee;border:1px solid #ef9a9a;border-radius:10px;padding:10px 14px;margin-bottom:10px;align-items:center;justify-content:space-between;gap:8px">
+      <span id="deleteCountMsg" style="font-size:13px;font-weight:700;color:#c62828">0개 선택됨</span>
+      <div style="display:flex;gap:8px">
+        <button onclick="deleteSelected()" style="background:#c62828;border:none;color:#fff;border-radius:8px;padding:8px 16px;font-family:'Noto Sans KR',sans-serif;font-size:13px;font-weight:700;cursor:pointer">선택 삭제</button>
+        <button onclick="toggleDeleteMode()" style="background:#fff;border:1px solid #c62828;color:#c62828;border-radius:8px;padding:8px 16px;font-family:'Noto Sans KR',sans-serif;font-size:13px;font-weight:700;cursor:pointer">취소</button>
+      </div>
     </div>
     <input class="srch" type="search" placeholder="🔍  관리번호, 주소, 연번 검색..." id="searchBox" oninput="renderList()">
     <div id="listContainer"></div>
@@ -719,8 +724,7 @@ const VFORM_OPTIONS = {
   '공기밸브':['단구','쌍구','급속'],'감압밸브':[],'역지밸브':[],
   '이토밸브':[],'기타':[],'':['지상식','지하식','단구','쌍구','급속','S.V','G.V','H.V']
 };
-const PHOTO_LIMIT_BYTES  = 10 * 1024 * 1024;  // 10MB 이상이면 경고
-const STORAGE_WARN_BYTES = 25 * 1024 * 1024;  // 25MB 넘으면 로컬 저장 위험 경고
+// 사진 용량 제한 없음 — Firebase Storage(5GB)에 직접 업로드
 
 let photos=[null,null,null,null], gpsData=null, selOCVal='', selValveStateVal='', records=[];
 Object.defineProperty(window,'_records',{ get(){return records;}, set(v){records=v;} });
@@ -843,8 +847,17 @@ function triggerPhoto(e,inputId){ e.preventDefault(); e.stopPropagation(); const
 /* ── 사진 처리 ── */
 function formatBytes(b){ if(b<1024) return b+'B'; if(b<1024*1024) return (b/1024).toFixed(0)+'KB'; return (b/1024/1024).toFixed(1)+'MB'; }
 
+const PHOTO_MAX_BYTES = 25 * 1024 * 1024; // 사진 1장 최대 25MB
+
 function handlePhoto(e, i) {
   const f = e.target.files[0]; if (!f) return;
+
+  // 25MB 초과 시 업로드 차단
+  if (f.size > PHOTO_MAX_BYTES) {
+    showToast(`⚠️ 사진 용량 초과! 최대 25MB (현재 ${formatBytes(f.size)})`);
+    e.target.value = '';
+    return;
+  }
   const r = new FileReader();
   r.onload = ev => {
     const data = ev.target.result;
@@ -854,7 +867,7 @@ function handlePhoto(e, i) {
     const sizeEl = document.getElementById('ps'+i);
     const bytes = data.length * 0.75;
     sizeEl.textContent = formatBytes(bytes);
-    sizeEl.classList.toggle('warn', bytes > PHOTO_LIMIT_BYTES);
+    sizeEl.classList.remove('warn'); // 용량 제한 없음
     checkStorageSize();
     document.getElementById('galleryGuide').classList.remove('show');
   };
@@ -872,14 +885,8 @@ function delPhoto(e, i) {
 }
 
 function checkStorageSize() {
-  const total = photos.filter(Boolean).reduce((s,p) => s + p.length*0.75, 0);
-  const warn = document.getElementById('storageWarn'), msg = document.getElementById('storageWarnMsg');
-  if (total > STORAGE_WARN_BYTES) {
-    msg.textContent = `사진 용량 ${formatBytes(total)} — 로컬 저장 실패 가능`;
-    warn.classList.add('show');
-  } else {
-    warn.classList.remove('show');
-  }
+  // Firebase Storage 사용으로 용량 제한 없음 — 경고 표시 안 함
+  document.getElementById('storageWarn').classList.remove('show');
 }
 
 /* ── 저장 ── */
@@ -975,6 +982,46 @@ function loadRecords(){
 }
 
 /* ── 목록 렌더링 ── */
+let deleteMode = false;
+let selectedIds = new Set();
+
+function toggleDeleteMode() {
+  deleteMode = !deleteMode;
+  selectedIds.clear();
+  const bar = document.getElementById('deleteActionBar');
+  const btn = document.getElementById('deleteModeBtn');
+  bar.style.display = deleteMode ? 'flex' : 'none';
+  btn.textContent = deleteMode ? '✕ 취소' : '🗑 삭제';
+  btn.style.background = deleteMode ? 'linear-gradient(135deg,#546e7a,#78909c)' : 'linear-gradient(135deg,#c62828,#e53935)';
+  updateDeleteCount();
+  renderList();
+}
+
+function toggleSelectCard(id, e) {
+  e.stopPropagation();
+  if (selectedIds.has(id)) selectedIds.delete(id);
+  else selectedIds.add(id);
+  updateDeleteCount();
+  renderList();
+}
+
+function updateDeleteCount() {
+  document.getElementById('deleteCountMsg').textContent = `${selectedIds.size}개 선택됨`;
+}
+
+async function deleteSelected() {
+  if (!selectedIds.size) { showToast('삭제할 항목을 선택하세요'); return; }
+  if (!confirm(`선택한 ${selectedIds.size}건을 삭제할까요?`)) return;
+  const toDelete = records.filter(r => selectedIds.has(r.id));
+  records = records.filter(r => !selectedIds.has(r.id));
+  saveRecords(); updateBadge();
+  for (const rec of toDelete) {
+    if (window.fbDeleteRecord) await window.fbDeleteRecord(rec);
+  }
+  showToast(`🗑 ${toDelete.length}건 삭제 완료`);
+  toggleDeleteMode();
+}
+
 function renderList(){
   const ft=document.getElementById('filterType').value, sq=document.getElementById('searchBox').value.toLowerCase();
   let list=records;
@@ -986,11 +1033,16 @@ function renderList(){
   document.getElementById('statGps').textContent=records.filter(r=>r.gps).length;
   const c=document.getElementById('listContainer');
   if(!list.length){ c.innerHTML='<div class="no-rec"><div class="ic">📭</div>기록이 없습니다</div>'; return; }
-  c.innerHTML=list.map(r=>`
-    <div class="r-card" onclick="openDetail(${r.id})">
-      <div class="r-head">
+  c.innerHTML=list.map(r=>{
+    const title = r.mgmtno ? r.mgmtno : `조사연번 #${r.seqno||'?'}`;
+    const isSelected = selectedIds.has(r.id);
+    const cardClick = deleteMode ? `toggleSelectCard(${r.id}, event)` : `openDetail(${r.id})`;
+    return `
+    <div class="r-card${isSelected ? ' r-card-selected' : ''}" onclick="${cardClick}" style="${deleteMode ? 'cursor:pointer' : ''}">
+      <div class="r-head" style="${isSelected ? 'background:linear-gradient(135deg,#c62828,#e53935)' : ''}">
+        ${deleteMode ? `<input type="checkbox" ${isSelected ? 'checked' : ''} onclick="toggleSelectCard(${r.id},event)" style="width:18px;height:18px;cursor:pointer;flex-shrink:0;accent-color:#fff">` : ''}
         <span class="r-seq">#${r.seqno||'?'}</span>
-        <span class="r-ttl">${r.mgmtno||'관리번호 없음'}</span>
+        <span class="r-ttl">${title}</span>
         <span style="font-size:11px;opacity:.7">${r.date||''}</span>
       </div>
       <div class="r-body">
@@ -1003,13 +1055,14 @@ function renderList(){
         </div>
         ${r.photos&&r.photos.some(p=>p)?`<div class="r-photos">${r.photos.filter(p=>p).slice(0,3).map(p=>`<img class="r-photo" src="${p}">`).join('')}</div>`:''}
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 /* ── 상세 모달 ── */
 function openDetail(id){
   const r=records.find(x=>x.id===id); if(!r) return;
-  document.getElementById('mTitle').textContent=`${r.mgmtno||'관리번호 없음'} — ${r.date}`;
+  document.getElementById('mTitle').textContent=`${r.mgmtno || '조사연번 #'+r.seqno} — ${r.date}`;
   const ocB=r.openclosed==='OPEN'?`<span style="color:#2e7d32;font-weight:900">🟢 OPEN</span>`:r.openclosed==='CLOSE'?`<span style="color:#c62828;font-weight:900">🔴 CLOSE</span>`:'-';
   const pLb=['위치상세도','위치도','사진(원경)','사진(근경)'];
   const vp=(r.photos||[]).map((p,i)=>({src:p,lb:pLb[i]})).filter(x=>x.src);
@@ -1072,7 +1125,7 @@ function renderMapTab(){
     <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:#f7f9fc;border-radius:8px;border:1px solid var(--border)">
       <div style="min-width:24px;height:24px;border-radius:50%;background:var(--blue-dark);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center">${i+1}</div>
       <div style="flex:1;min-width:0">
-        <div style="font-size:12px;font-weight:700">${r.mgmtno||'관리번호 없음'} <span style="color:var(--muted);font-weight:400">#${r.seqno}</span></div>
+        <div style="font-size:12px;font-weight:700">${r.mgmtno||'조사연번 #'+r.seqno} <span style="color:var(--muted);font-weight:400">#${r.seqno}</span></div>
         <div style="font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace;margin-top:1px">${r.gpsLat}, ${r.gpsLng}</div>
       </div>
       <span style="font-size:10px;background:var(--blue-light);color:var(--blue-dark);padding:2px 7px;border-radius:5px;font-weight:700">${r.vtype||'?'}</span>
