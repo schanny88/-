@@ -847,31 +847,58 @@ function triggerPhoto(e,inputId){ e.preventDefault(); e.stopPropagation(); const
 /* ── 사진 처리 ── */
 function formatBytes(b){ if(b<1024) return b+'B'; if(b<1024*1024) return (b/1024).toFixed(0)+'KB'; return (b/1024/1024).toFixed(1)+'MB'; }
 
-const PHOTO_MAX_BYTES = 25 * 1024 * 1024; // 사진 1장 최대 25MB
+const PHOTO_MAX_BYTES  = 25 * 1024 * 1024; // 선택 가능한 원본 최대 크기
+const PHOTO_MAX_WIDTH  = 1920;              // 리사이즈 최대 가로
+const PHOTO_QUALITY    = 0.85;              // JPEG 압축 품질 (85%)
+
+/* 압축 함수 — Canvas 리사이즈 + JPEG 85% */
+function compressImage(dataUrl) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      let w = img.width, h = img.height;
+      if (w > PHOTO_MAX_WIDTH) {
+        h = Math.round(h * PHOTO_MAX_WIDTH / w);
+        w = PHOTO_MAX_WIDTH;
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL('image/jpeg', PHOTO_QUALITY));
+    };
+    img.src = dataUrl;
+  });
+}
 
 function handlePhoto(e, i) {
   const f = e.target.files[0]; if (!f) return;
 
-  // 25MB 초과 시 업로드 차단
+  // 25MB 초과 원본은 차단
   if (f.size > PHOTO_MAX_BYTES) {
-    showToast(`⚠️ 사진 용량 초과! 최대 25MB (현재 ${formatBytes(f.size)})`);
-    e.target.value = '';
-    return;
+    showToast(`⚠️ 사진이 너무 커요! 최대 25MB (현재 ${formatBytes(f.size)})`);
+    e.target.value = ''; return;
   }
-  const r = new FileReader();
-  r.onload = ev => {
-    const data = ev.target.result;
-    photos[i] = data;
-    document.getElementById('pi'+i).src = data;
-    document.getElementById('pc'+i).classList.add('hp');
-    const sizeEl = document.getElementById('ps'+i);
-    const bytes = data.length * 0.75;
-    sizeEl.textContent = formatBytes(bytes);
-    sizeEl.classList.remove('warn'); // 용량 제한 없음
+
+  // 미리보기에 압축 중 표시
+  const sizeEl = document.getElementById('ps'+i);
+  sizeEl.textContent = '압축 중...';
+  document.getElementById('pc'+i).classList.add('hp');
+
+  const reader = new FileReader();
+  reader.onload = async ev => {
+    const compressed = await compressImage(ev.target.result);
+    const bytes = compressed.length * 0.75;
+    const savedPct = Math.round((1 - bytes / f.size) * 100);
+
+    photos[i] = compressed;
+    document.getElementById('pi'+i).src = compressed;
+    // 압축 결과 표시: "1.2MB → 320KB (73%↓)"
+    sizeEl.textContent = `${formatBytes(f.size)} → ${formatBytes(bytes)} (${savedPct}%↓)`;
+    sizeEl.classList.remove('warn');
     checkStorageSize();
     document.getElementById('galleryGuide').classList.remove('show');
   };
-  r.readAsDataURL(f);
+  reader.readAsDataURL(f);
   e.target.value = '';
 }
 
