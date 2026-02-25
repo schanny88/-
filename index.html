@@ -272,12 +272,46 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 .storage-warn.show{display:flex}
 .vroom-row{display:flex;align-items:center;gap:0;flex-wrap:nowrap;overflow:hidden}
 .vroom-x{padding:0 3px;font-weight:900;color:var(--bdark);font-size:12px;flex-shrink:0}
-.vroom-inp{flex:1;min-width:0;border:none;outline:none;font-family:'Noto Sans KR',sans-serif;font-size:11px;color:var(--text);background:var(--cell);padding:9px 3px;text-align:center;transition:background .15s,box-shadow .15s}
+.vroom-inp{flex:1;min-width:0;border:none;outline:none;font-family:'Noto Sans KR',sans-serif;font-size:11px;color:var(--text);background:#e8edf3;padding:9px 3px;text-align:center;transition:background .15s,box-shadow .15s}
 .vroom-inp:focus{background:#fffde7;box-shadow:inset 0 0 0 2px #ffc107}
 .vroom-unit{padding:0 4px;font-size:10px;color:var(--muted);font-weight:700;flex-shrink:0}
 .lb-vroom{background:linear-gradient(135deg,#dde8f5,#c8daf5);color:var(--blue-dark);font-weight:700;text-align:center;padding:9px 2px;font-size:10px;white-space:normal;word-break:keep-all;line-height:1.3}
-.valve-row.disabled td,#valve-section-header.disabled td,#valve-vert.disabled{opacity:.35;pointer-events:none;user-select:none}
-.vroom-tr.disabled td,.vroom-row-manhole.disabled td:not(#vroom-remark-lb):not(#vroom-remark-inp),#vroom-section-header.disabled td,#vroom-vert.disabled{opacity:.35;pointer-events:none;user-select:none}
+
+/* ══════════════════════════════════════════════════════
+   [수정] valve-row disabled: 밸브현황 세로 타이틀 제외
+   섹션 헤더(lb-sec), 세로 라벨(lb-vert)은 opacity 적용 안 함
+   ══════════════════════════════════════════════════════ */
+.valve-row.disabled td{opacity:.35;pointer-events:none;user-select:none}
+
+/* 밸브현황 섹션헤더/세로라벨 — 절대 흐려지지 않음 */
+#valve-section-header td,
+#valve-vert{
+  opacity:1 !important;
+  pointer-events:auto !important;
+  user-select:auto !important;
+}
+
+/* vroom 행: 헤더, 세로라벨 제외하고 비활성 처리 */
+.vroom-tr.disabled td,
+.vroom-row-manhole.disabled td:not(#vroom-remark-lb):not(#vroom-remark-inp){
+  opacity:.35;pointer-events:none;user-select:none
+}
+
+/* 밸브실 섹션헤더/세로라벨 — 절대 흐려지지 않음 */
+#vroom-section-header td,
+#vroom-vert{
+  opacity:1 !important;
+  pointer-events:auto !important;
+  user-select:auto !important;
+}
+
+/* 소형철개 행 — disabled 자체를 막음(JS에서도 처리) */
+.vroom-row-smcover td{
+  opacity:1 !important;
+  pointer-events:auto !important;
+  user-select:auto !important;
+}
+
 .inp select:disabled{background:#f0f0f0;color:#aaa;cursor:not-allowed}
 .manhole-disabled-wrap{position:relative}
 .manhole-disabled-badge{display:none;position:absolute;inset:0;background:rgba(240,240,240,.85);align-items:center;justify-content:center;font-size:10px;color:var(--muted);font-weight:700;z-index:5;pointer-events:none}
@@ -441,6 +475,8 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
     </div>
   </td>
 </tr>
+
+<!-- ▸ 밸브 현황 섹션 헤더 — id로 투명도 예외 처리 -->
 <tr id="valve-section-header"><td class="lb-sec" colspan="6">밸브 현황</td></tr>
 <tr class="valve-row">
   <td class="lb-vert" rowspan="6" id="valve-vert"><span>밸브현황</span></td>
@@ -454,7 +490,7 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
   </td>
   <td class="lb">형식</td>
   <td class="inp" colspan="2">
-    <select id="f-vform" onchange="chkD(this,'dw-vform');autoFillRotation()"><option value="">-</option></select>
+    <select id="f-vform" onchange="onVformChange()"><option value="">-</option></select>
     <div class="dw" id="dw-vform"><input type="text" placeholder="직접 입력" id="dt-vform"></div>
   </td>
 </tr>
@@ -509,7 +545,7 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 </tr>
 <tr class="valve-row">
   <td class="lb">심도(m)</td>
-  <td class="inp"><input type="text" id="f-depth" placeholder="0.7"></td>
+  <td class="inp"><input type="number" id="f-depth" placeholder="0" min="0" step="1" style="appearance:none;-moz-appearance:textfield"></td>
   <td class="lb">개폐여부</td>
   <td class="inp" colspan="2">
     <div class="oc-wrap">
@@ -518,22 +554,13 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
     </div>
   </td>
 </tr>
+
+<!-- ▸ 밸브실 현황 섹션 헤더 — id로 투명도 예외 처리 -->
 <tr id="vroom-section-header"><td class="lb-sec" colspan="6">밸브실 현황</td></tr>
-<tr class="vroom-tr">
-  <td class="lb-vert" rowspan="3" id="vroom-vert"><span>밸브실</span></td>
-  <td class="lb-vroom">밸브실<br>크기</td>
-  <td class="inp" colspan="4" style="padding:0">
-    <div class="vroom-row">
-      <input class="vroom-inp" type="text" id="f-vroom1" placeholder="0.0">
-      <span class="vroom-x">×</span>
-      <input class="vroom-inp" type="text" id="f-vroom2" placeholder="0.0">
-      <span class="vroom-x">×</span>
-      <input class="vroom-inp" type="text" id="f-vroom3" placeholder="0.0">
-      <span class="vroom-unit">m</span>
-    </div>
-  </td>
-</tr>
+
+<!-- ▸ 소형철개/맨홀철개 행 — 개폐불가여도 항상 활성 (class: vroom-row-smcover) -->
 <tr class="vroom-row-smcover">
+  <td class="lb-vert" rowspan="3" id="vroom-vert"><span>밸브실</span></td>
   <td class="lb-vroom">소형<br>철개</td>
   <td class="inp">
     <div class="manhole-disabled-wrap">
@@ -545,23 +572,26 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
       <div class="manhole-disabled-badge" id="smcoverDisabledBadge">🚫 맨홀철개 선택 시 입력불가</div>
     </div>
   </td>
-  <td class="lb-vroom">보호통</td>
-  <td class="inp" colspan="2">
-    <select id="f-protbox" onchange="chkD(this,'dw-protbox')">
-      <option value="">-</option><option>150</option><option>300</option><option value="__d__">직접입력...</option>
-    </select>
-    <div class="dw" id="dw-protbox"><input type="text" placeholder="직접 입력" id="dt-protbox"></div>
-  </td>
-</tr>
-<tr class="vroom-row-manhole">
   <td class="lb-vroom">맨홀<br>철개</td>
-  <td class="inp">
+  <td class="inp" colspan="2">
     <div class="manhole-disabled-wrap">
       <select id="f-manhole" onchange="onManholeChange()">
         <option value="">-</option><option>648</option><option value="__d__">직접입력...</option>
       </select>
       <div class="dw" id="dw-manhole"><input type="text" placeholder="직접 입력" id="dt-manhole"></div>
       <div class="manhole-disabled-badge" id="manholeDisabledBadge">🚫 소형철개 선택 시 입력불가</div>
+    </div>
+  </td>
+</tr>
+<tr class="vroom-row-manhole">
+  <td class="lb-vroom">보호통</td>
+  <td class="inp">
+    <div class="manhole-disabled-wrap">
+      <select id="f-protbox" onchange="chkD(this,'dw-protbox')">
+        <option value="">-</option><option>150</option><option>300</option><option value="__d__">직접입력...</option>
+      </select>
+      <div class="dw" id="dw-protbox"><input type="text" placeholder="직접 입력" id="dt-protbox"></div>
+      <div class="manhole-disabled-badge" id="protboxDisabledBadge">🚫 맨홀철개 선택 시 입력불가</div>
     </div>
   </td>
   <td class="lb-vroom" id="vroom-remark-lb">비고</td>
@@ -572,6 +602,20 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
       <option>보호통 이탈</option><option>스핀들탈락</option><option>현장없음</option><option value="__d__">직접입력...</option>
     </select>
     <div class="dw" id="dw-vremark"><input type="text" placeholder="직접 입력" id="dt-vremark"></div>
+  </td>
+</tr>
+<tr class="vroom-tr">
+  <td class="lb-vroom">밸브실<br>크기</td>
+  <td class="inp" colspan="4" style="padding:0;position:relative">
+    <div class="vroom-row">
+      <input class="vroom-inp" type="text" id="f-vroom1" placeholder="0.0">
+      <span class="vroom-x">×</span>
+      <input class="vroom-inp" type="text" id="f-vroom2" placeholder="0.0">
+      <span class="vroom-x">×</span>
+      <input class="vroom-inp" type="text" id="f-vroom3" placeholder="0.0">
+      <span class="vroom-unit">m</span>
+    </div>
+    <div class="manhole-disabled-badge" id="vroomDisabledBadge">🚫 소형철개 선택 시 입력불가</div>
   </td>
 </tr>
 <tr><td class="lb-sec" colspan="6">기타사항</td></tr>
@@ -709,7 +753,8 @@ const ROTATION_DATA = {
   '제수밸브': {
     '삼진정밀': { 50:10, 80:13, 100:17, 125:19, 150:19, 200:25, 250:25, 300:30, 350:35, 400:37, 450:42, 500:42, 600:51 },
     '신진정공_일반': { 50:13, 65:14, 80:14, 100:18, 125:20, 150:20, 200:26, 250:26, 300:31, 350:36, 400:37, 450:42, 500:42, 600:51 },
-    '신진정공_부단수': { 50:16, 65:null, 80:19, 100:24, 125:30, 150:34, 200:44, 250:55, 300:55, 350:64, 400:55, 450:61, 500:68, 600:74 }
+    '신진정공_부단수': { 50:16, 65:null, 80:19, 100:24, 125:30, 150:34, 200:44, 250:55, 300:55, 350:64, 400:55, 450:61, 500:68, 600:74 },
+    'SK밸브': { 50:13, 80:14, 100:17, 125:22, 150:20, 200:26, 250:26, 300:31, 350:36, 400:40, 450:38, 500:42, 600:51 }
   },
   '지수밸브': {
     '신진정공': { 15:6, 20:6, 25:6, 32:16, 40:16, 50:16 }
@@ -737,10 +782,11 @@ function autoFillRotation(){
     if(maker === '삼진정밀'){
       table = ROTATION_DATA['제수밸브']['삼진정밀'];
     } else if(maker === '신진정공'){
-      // 형식이 부단수밸브면 부단수 테이블
       table = (vform === '부단수밸브')
         ? ROTATION_DATA['제수밸브']['신진정공_부단수']
         : ROTATION_DATA['제수밸브']['신진정공_일반'];
+    } else if(maker === 'SK밸브'){
+      table = ROTATION_DATA['제수밸브']['SK밸브'];
     }
   } else if(vtype === '지수밸브'){
     if(maker === '신진정공'){
@@ -787,11 +833,9 @@ function onBigblockChange(){
   const big = document.getElementById('f-bigblock').value;
   const midSel = document.getElementById('f-midblock');
   const dwMid = document.getElementById('dw-midblock');
-  // 중블록 초기화
   midSel.innerHTML = '<option value="">-</option>';
   dwMid.classList.remove('on');
   document.getElementById('dt-midblock').value = '';
-  // 소블록 초기화
   onMidblockChange();
   if(!big || !BLOCK_DATA[big]) {
     const od = document.createElement('option'); od.value='__d__'; od.textContent='직접입력...'; midSel.appendChild(od);
@@ -808,7 +852,6 @@ function onMidblockChange(){
   const mid = document.getElementById('f-midblock').value;
   const smallSel = document.getElementById('f-smallblock');
   const dwSmall = document.getElementById('dw-smallblock');
-  // 소블록 초기화
   smallSel.innerHTML = '<option value="">-</option>';
   dwSmall.classList.remove('on');
   document.getElementById('dt-smallblock').value = '';
@@ -841,9 +884,9 @@ Object.defineProperty(window,'_records',{ get(){return records;}, set(v){records
 /* ── 초기화 ── */
 function init(){
   document.getElementById('f-date').value = new Date().toISOString().split('T')[0];
-
   loadRecords(); updateBadge(); updateSeqPreview(); updateVformOptions('');
   applyVtypeBlank(true);
+  applyVremarkDisabled(true);
   document.getElementById('mOv').addEventListener('click',e=>{ if(e.target===document.getElementById('mOv')) closeModal(); });
   document.getElementById('mCloseBtn').addEventListener('click', closeModal);
 }
@@ -866,11 +909,8 @@ function onVtypeChange(){
   applyVtypeBlank(vt === '');
 }
 
-/* 밸브종류 미선택 시 관련 드롭다운을 - 만 표시 */
 function applyVtypeBlank(blank){
-  // ── 드롭다운: - 만 표시 (비활성 배경색 통일) ──
-  const selIds = ['f-vform','f-drive','f-maker','f-dia','f-material','f-rotation',
-                  'f-smcover','f-protbox','f-manhole','f-vremark'];
+  const selIds = ['f-vform','f-drive','f-maker','f-dia','f-material','f-rotation'];
   selIds.forEach(id=>{
     const sel = document.getElementById(id);
     if(!sel) return;
@@ -890,7 +930,6 @@ function applyVtypeBlank(blank){
     }
   });
 
-  // ── 텍스트 입력 비활성 (배경색 통일) ──
   ['f-totalrot','f-currot','f-depth','f-installyear',
    'f-vroom1','f-vroom2','f-vroom3'].forEach(id=>{
     const el = document.getElementById(id);
@@ -906,7 +945,6 @@ function applyVtypeBlank(blank){
     }
   });
 
-  // ── 개폐여부 버튼 (색 유지, 클릭만 막기) ──
   ['oc-open','oc-close'].forEach(id=>{
     const el = document.getElementById(id);
     if(!el) return;
@@ -920,22 +958,35 @@ function applyVtypeBlank(blank){
     document.getElementById('oc-close').classList.remove('on');
   }
 
-  // ── 직접입력 dw 닫기 ──
   ['dw-vform','dw-maker','dw-dia','dw-material',
    'dw-smcover','dw-protbox','dw-manhole','dw-vremark'].forEach(id=>{
     const el = document.getElementById(id);
     if(el && blank) el.classList.remove('on');
   });
 
-  // ── 배지 초기화 ──
   if(blank){
     const mhB=document.getElementById('manholeDisabledBadge'); if(mhB) mhB.classList.remove('on');
     const smB=document.getElementById('smcoverDisabledBadge'); if(smB) smB.classList.remove('on');
+    const ptB=document.getElementById('protboxDisabledBadge'); if(ptB) ptB.classList.remove('on');
+    const vrB=document.getElementById('vroomDisabledBadge'); if(vrB) vrB.classList.remove('on');
   }
 
-  // blank 해제 시 상호배타 상태 복구
+  /* ── [수정] blank 여부와 관계없이 소형/맨홀철개는 항상 활성 유지 ── */
+  _ensureSmcoverManholeEnabled();
+
   if(!blank) syncSmcoverManhole();
 }
+
+/* 소형/맨홀철개 셀렉트 강제 활성 보장 (개폐불가·vtype blank 무관) */
+function _ensureSmcoverManholeEnabled(){
+  const smSel = document.getElementById('f-smcover');
+  const mhSel = document.getElementById('f-manhole');
+  /* 상호배타 로직(syncSmcoverManhole)이 다시 적용하므로
+     일단 둘 다 enable 후 syncSmcoverManhole 에서 상호배타만 처리 */
+  if(smSel) { smSel.disabled = false; smSel.style.background=''; smSel.style.cursor=''; smSel.style.color=''; }
+  if(mhSel) { mhSel.disabled = false; mhSel.style.background=''; mhSel.style.cursor=''; mhSel.style.color=''; }
+}
+
 function updateDiaOptions(vt){
   const sel=document.getElementById('f-dia');
   const dw=document.getElementById('dw-dia');
@@ -960,6 +1011,34 @@ function updateVformOptions(vt){
   const od=document.createElement('option'); od.value='__d__'; od.textContent='직접입력...'; sel.appendChild(od);
   sel.value=''; dw.classList.remove('on'); dt.value='';
 }
+function onVformChange(){
+  chkD(document.getElementById('f-vform'),'dw-vform');
+  const vt    = document.getElementById('f-vtype').value;
+  const vform = document.getElementById('f-vform').value;
+  /* 제수밸브 + 부단수밸브 선택 시 → 제작회사를 신진정공·직접입력만 표시 */
+  if(vt === '제수밸브' && vform === '부단수밸브'){
+    filterMakerOptions(['신진정공']);
+  } else {
+    updateMakerOptions(vt);
+  }
+  autoFillRotation();
+}
+/* 특정 제작사만 보이도록 필터 */
+function filterMakerOptions(allowedList){
+  const sel = document.getElementById('f-maker');
+  const currentVal = sel.value;
+  sel.innerHTML='<option value="">-</option>';
+  allowedList.forEach(m=>{ const o=document.createElement('option'); o.value=m; o.textContent=m; sel.appendChild(o); });
+  const od=document.createElement('option'); od.value='__d__'; od.textContent='직접입력...'; sel.appendChild(od);
+  /* 현재 선택값이 허용 목록에 없으면 초기화 */
+  if(!allowedList.includes(currentVal)){
+    sel.value='';
+    document.getElementById('dw-maker').classList.remove('on');
+    document.getElementById('dt-maker').value='';
+  } else {
+    sel.value=currentVal;
+  }
+}
 function updateMakerOptions(vt){
   const sel=document.getElementById('f-maker');
   sel.innerHTML='<option value="">-</option>';
@@ -971,39 +1050,83 @@ function updateMakerOptions(vt){
 function chkD(sel,wid){ document.getElementById(wid).classList.toggle('on',sel.value==='__d__'); if(sel.value==='__d__') document.getElementById(wid).querySelector('input').focus(); }
 function gv(sid,dtid){ const s=document.getElementById(sid); return s.value==='__d__'?document.getElementById(dtid).value.trim():s.value; }
 function selOC(v){ selOCVal=selOCVal===v?'':v; document.getElementById('oc-open').classList.toggle('on',selOCVal==='OPEN'); document.getElementById('oc-close').classList.toggle('on',selOCVal==='CLOSE'); }
+
 function selValveState(v){
   selValveStateVal=selValveStateVal===v?'':v;
   document.getElementById('oc-possible').classList.toggle('on',selValveStateVal==='개폐가능');
   document.getElementById('oc-impossible').classList.toggle('on',selValveStateVal==='개폐불가');
   applyValveSectionDisabled(selValveStateVal==='개폐불가');
+  applyVremarkDisabled(selValveStateVal!=='개폐불가');
 }
+
+function applyVremarkDisabled(disabled){
+  const sel  = document.getElementById('f-vremark');
+  const dw   = document.getElementById('dw-vremark');
+  const dt   = document.getElementById('dt-vremark');
+  const inp  = document.getElementById('vroom-remark-inp');
+  if(!sel) return;
+  if(disabled){
+    sel.disabled = true;
+    sel.value = '';
+    sel.style.background = '';
+    sel.style.color = '';
+    sel.style.cursor = '';
+    if(dw) dw.classList.remove('on');
+    if(dt) dt.value = '';
+    if(inp) { inp.style.opacity='0.35'; inp.style.pointerEvents='none'; inp.style.userSelect='none'; }
+  } else {
+    sel.disabled = false;
+    if(inp) { inp.style.opacity=''; inp.style.pointerEvents=''; inp.style.userSelect=''; }
+  }
+}
+
 function applyValveSectionDisabled(disabled){
-  // 밸브현황 섹션 비활성화
-  ['valve-section-header','valve-vert'].forEach(id=>{ const el=document.getElementById(id); if(el) el.classList.toggle('disabled',disabled); });
-  document.querySelectorAll('.valve-row').forEach(tr=>{ tr.classList.toggle('disabled',disabled); tr.querySelectorAll('input,select,button').forEach(el=>el.disabled=disabled); });
-  // 밸브실 크기 행만 비활성화 (소형철개 행 제외)
-  ['vroom-section-header','vroom-vert'].forEach(id=>{ const el=document.getElementById(id); if(el) el.classList.toggle('disabled',disabled); });
-  document.querySelectorAll('.vroom-tr').forEach(tr=>{ tr.classList.toggle('disabled',disabled); tr.querySelectorAll('input,select').forEach(el=>el.disabled=disabled); });
-  // 소형철개/맨홀철개/비고는 개폐불가여도 항상 활성
+  /* ── 밸브현황 행만 비활성 (섹션헤더/세로라벨 제외 — CSS !important로도 보호) ── */
+  document.querySelectorAll('.valve-row').forEach(tr=>{
+    tr.classList.toggle('disabled', disabled);
+    tr.querySelectorAll('input,select,button').forEach(el=>el.disabled=disabled);
+  });
+
+  /* ── 밸브실 크기 행만 비활성 ── */
+  document.querySelectorAll('.vroom-tr').forEach(tr=>{
+    tr.classList.toggle('disabled', disabled);
+    tr.querySelectorAll('input,select').forEach(el=>el.disabled=disabled);
+  });
+
+  /* ── [수정] 소형/맨홀철개 행은 개폐불가여도 항상 활성 ── */
+  _ensureSmcoverManholeEnabled();
+
+  /* 보호통 행(vroom-row-manhole) — 보호통 셀만 비활성, 비고는 별도 applyVremarkDisabled */
+  document.querySelectorAll('.vroom-row-manhole').forEach(tr=>{
+    tr.classList.toggle('disabled', disabled);
+    /* 비고 열은 건드리지 않음 — applyVremarkDisabled 에서 독립 처리 */
+  });
+
+  /* 상호배타 다시 동기화 */
   syncSmcoverManhole();
 }
+
 /* 소형철개 ↔ 맨홀철개 상호 배타 */
 function syncSmcoverManhole(){
-  const smSel   = document.getElementById('f-smcover');
-  const mhSel   = document.getElementById('f-manhole');
-  const ptSel   = document.getElementById('f-protbox');
-  const mhBadge = document.getElementById('manholeDisabledBadge');
-  const smBadge = document.getElementById('smcoverDisabledBadge');
-  const dwMh    = document.getElementById('dw-manhole');
-  const dwSm    = document.getElementById('dw-smcover');
-  const dwPt    = document.getElementById('dw-protbox');
+  const smSel     = document.getElementById('f-smcover');
+  const mhSel     = document.getElementById('f-manhole');
+  const ptSel     = document.getElementById('f-protbox');
+  const dwPt      = document.getElementById('dw-protbox');
+  const mhBadge   = document.getElementById('manholeDisabledBadge');
+  const smBadge   = document.getElementById('smcoverDisabledBadge');
+  const ptBadge   = document.getElementById('protboxDisabledBadge');
+  const vrBadge   = document.getElementById('vroomDisabledBadge');
+  const dwMh      = document.getElementById('dw-manhole');
+  const dwSm      = document.getElementById('dw-smcover');
 
   const smVal = smSel.value === '__d__' ? document.getElementById('dt-smcover').value.trim() : smSel.value;
   const mhVal = mhSel.value === '__d__' ? document.getElementById('dt-manhole').value.trim() : mhSel.value;
   const hasSmcover = smVal !== '';
   const hasManhole = mhVal !== '';
+  const is648      = mhVal === '648';
+  const smNoVroom  = ['185','265','318'].includes(smVal) || hasSmcover;
 
-  // 소형철개 있으면 → 맨홀철개 비활성
+  /* ── 소형철개 있으면 → 맨홀철개 비활성 ── */
   if(hasSmcover){
     mhSel.disabled=true; mhSel.value=''; dwMh.classList.remove('on');
     document.getElementById('dt-manhole').value='';
@@ -1012,7 +1135,7 @@ function syncSmcoverManhole(){
     mhSel.disabled=false; mhBadge.classList.remove('on');
   }
 
-  // 맨홀철개 있으면 → 소형철개 비활성
+  /* ── 맨홀철개 있으면 → 소형철개 비활성 ── */
   if(hasManhole){
     smSel.disabled=true; smSel.value=''; dwSm.classList.remove('on');
     document.getElementById('dt-smcover').value='';
@@ -1021,10 +1144,25 @@ function syncSmcoverManhole(){
     smSel.disabled=false; smBadge.classList.remove('on');
   }
 
-  // 둘 다 값 없으면 → 보호통 활성 / 둘 중 하나라도 있으면 → 보호통 비활성
-  const eitherHasVal = hasSmcover || hasManhole;
-  ptSel.disabled = eitherHasVal;
-  if(eitherHasVal){ ptSel.value=''; dwPt.classList.remove('on'); document.getElementById('dt-protbox').value=''; }
+  /* ── 648 선택 시 → 보호통 비활성 ── */
+  if(is648){
+    ptSel.disabled=true; ptSel.value=''; dwPt.classList.remove('on');
+    document.getElementById('dt-protbox').value='';
+    if(ptBadge) ptBadge.classList.add('on');
+  } else {
+    ptSel.disabled=false;
+    if(ptBadge) ptBadge.classList.remove('on');
+  }
+
+  /* ── 소형철개 선택 시 → 밸브실크기 비활성 ── */
+  ['f-vroom1','f-vroom2','f-vroom3'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(!el) return;
+    el.disabled = smNoVroom;
+    if(smNoVroom){ el.value=''; el.style.background='var(--cell)'; el.style.cursor='default'; }
+    else { el.style.background=''; el.style.cursor=''; }
+  });
+  if(vrBadge) vrBadge.classList.toggle('on', smNoVroom);
 }
 function onSmcoverChange(){ syncSmcoverManhole(); }
 function onManholeChange(){ chkD(document.getElementById('f-manhole'),'dw-manhole'); syncSmcoverManhole(); }
@@ -1058,7 +1196,6 @@ async function reverseGeocode(lat, lng) {
     const geocoder = new kakao.maps.services.Geocoder();
     geocoder.coord2Address(lng, lat, function(result, status) {
       if (status === kakao.maps.services.Status.OK && result.length > 0) {
-        // 도로명 주소 우선, 없으면 지번 주소
         const road   = result[0].road_address;
         const parcel = result[0].address;
         const addr   = (road ? road.address_name : '') || (parcel ? parcel.address_name : '');
@@ -1224,7 +1361,7 @@ function resetForm(){
   document.querySelectorAll('.dw').forEach(el=>el.classList.remove('on'));
   selOCVal=''; ['oc-open','oc-close','oc-possible','oc-impossible'].forEach(id=>document.getElementById(id).classList.remove('on'));
   applyVtypeBlank(true);
-  selValveStateVal=''; applyValveSectionDisabled(false);
+  selValveStateVal=''; applyValveSectionDisabled(false); applyVremarkDisabled(true);
   document.getElementById('f-manhole').disabled=false;
   document.getElementById('f-smcover').disabled=false;
   document.getElementById('manholeDisabledBadge').classList.remove('on');
