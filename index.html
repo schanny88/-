@@ -474,7 +474,7 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
   <td class="lb-vert" rowspan="5"><span>기본현황</span></td>
   <td class="lb">조사연번</td>
   <td class="inp">
-    <input type="number" id="f-seqno" placeholder="자동">
+    <input type="number" id="f-seqno" placeholder="연번" min="1" style="font-weight:700;color:var(--blue-dark)">
   </td>
   <td class="lb">관리번호</td>
   <td class="inp" colspan="2"><input type="text" id="f-mgmtno" placeholder="JS01-000"></td>
@@ -784,7 +784,8 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
         <option>제수밸브</option><option>소화전</option><option>공기밸브</option>
         <option>감압밸브</option><option>역지밸브</option><option>이토밸브</option><option>기타</option>
       </select>
-      <button class="exp-btn" onclick="exportExcel()">📊 엑셀</button>
+      <button class="exp-btn" onclick="exportExcelTemplate()" title="기존 조서 엑셀에 데이터 추가">📋 조서저장</button>
+      <button class="exp-btn" onclick="exportExcel()" title="새 엑셀 파일로 내보내기" style="background:linear-gradient(135deg,#2e7d32,#388e3c)">📊 새파일</button>
     </div>
     <input class="srch" type="search" placeholder="🔍  관리번호, 주소, 연번 검색..." id="searchBox" oninput="renderList()">
     <div id="listContainer"></div>
@@ -876,7 +877,7 @@ function getNextSeqno() {
 }
 function updateSeqPreview() {
   const el = document.getElementById('f-seqno');
-  if (!el.value) el.placeholder = `자동 (${getNextSeqno()})`;
+  if (!el.value) el.value = getNextSeqno();
 }
 
 /* ═══════════════════════════════
@@ -1289,7 +1290,7 @@ function resetForm() {
     .forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
   updateVformOptions('');
   updateMakerOptions('');
-  document.getElementById('f-seqno').value = '';
+  document.getElementById('f-seqno').value = getNextSeqno();
   document.querySelectorAll('.dw').forEach(el => el.classList.remove('on'));
   selOCVal = '';
   document.getElementById('oc-open').classList.remove('on');
@@ -1487,6 +1488,137 @@ function renderMapTab() {
 }
 
 /* ═══════════════════════════════
+   조서 템플릿에 데이터 추가 저장
+   기존 xlsm 파일을 불러와 조서 시트에 데이터 삽입
+═══════════════════════════════ */
+async function exportExcelTemplate() {
+  if (!records.length) { showToast('내보낼 기록이 없습니다'); return; }
+
+  // 파일 선택
+  return new Promise(resolve => {
+    const inp = document.createElement('input');
+    inp.type = 'file';
+    inp.accept = '.xlsx,.xlsm,.xls';
+    inp.onchange = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      showToast('📂 파일 읽는 중...');
+
+      const reader = new FileReader();
+      reader.onload = async (ev) => {
+        try {
+          const data = ev.target.result;
+          const wb = XLSX.read(data, { type: 'array', cellStyles: true });
+
+          // 조서 시트 찾기
+          const sheetName = wb.SheetNames.find(n => n === '조서') || wb.SheetNames[0];
+          const ws = wb.Sheets[sheetName];
+
+          // 기존 데이터 마지막 행 찾기
+          const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+          const lastRow = range.e.r; // 0-indexed
+
+          // 조사연번 오름차순 정렬
+          const sorted = [...records].sort((a, b) => {
+            const na = parseInt(a.seqno) || 0, nb = parseInt(b.seqno) || 0;
+            return na - nb;
+          });
+
+          // 기존 조서의 조사연번 목록 수집 (중복 방지)
+          const existingSeqnos = new Set();
+          for (let r = 1; r <= lastRow; r++) {
+            const cell = ws[XLSX.utils.encode_cell({r, c: 0})];
+            if (cell && cell.v !== undefined) existingSeqnos.add(String(cell.v));
+          }
+
+          // 컬럼 순서 (조서 원본: A~X 기준)
+          // A:조사연번 B:출력번호 C:관리번호 D:주소 E:종류 F:대블록 G:중블록 H:소블록
+          // I:형식 J:구동방법 K:제작회사 L:구경 M:재질 N:설치년도 O:회전방향 P:회전수
+          // Q:개폐여부 R:보호통 S:밸브실 T:소형철개 U:맨홀철개 V:심도 W:조사일자 X:비고
+          let addedCount = 0;
+          let writeRow = lastRow + 1;
+
+          sorted.forEach(r => {
+            // 이미 있는 연번은 덮어쓰기 (업데이트)
+            let targetRow = writeRow;
+            if (existingSeqnos.has(String(r.seqno))) {
+              // 기존 행 위치 찾기
+              for (let row = 1; row <= lastRow; row++) {
+                const c = ws[XLSX.utils.encode_cell({r: row, c: 0})];
+                if (c && String(c.v) === String(r.seqno)) {
+                  targetRow = row;
+                  break;
+                }
+              }
+            } else {
+              writeRow++;
+            }
+
+            const rowData = [
+              r.seqno,          // A: 조사연번
+              '',               // B: 출력번호 (공란)
+              r.mgmtno,         // C: 관리번호
+              r.addr,           // D: 주소
+              r.vtype,          // E: 종류
+              r.bigblock,       // F: 대블록
+              r.midblock,       // G: 중블록
+              r.smallblock,     // H: 소블록
+              r.vform,          // I: 형식
+              r.drive,          // J: 구동방법
+              r.maker,          // K: 제작회사
+              r.dia,            // L: 구경
+              r.material,       // M: 재질
+              r.installyear,    // N: 설치년도
+              r.rotation,       // O: 회전방향
+              r.totalrot,       // P: 회전수
+              r.openclosed,     // Q: 개폐여부
+              r.protbox,        // R: 보호통
+              r.vroomSize,      // S: 밸브실
+              r.smcover,        // T: 소형철개
+              r.manhole,        // U: 맨홀철개
+              r.depth,          // V: 심도
+              r.date,           // W: 조사일자
+              (r.notes || '') + (r.vremark ? (r.notes ? ' / ' : '') + r.vremark : '') + (r.smallmemo ? (r.notes||r.vremark ? ' / ' : '') + r.smallmemo : '') // X: 비고 통합
+            ];
+
+            rowData.forEach((val, c) => {
+              const addr = XLSX.utils.encode_cell({r: targetRow, c});
+              const existing = ws[addr];
+              ws[addr] = {
+                v: val === null || val === undefined ? '' : val,
+                t: typeof val === 'number' ? 'n' : 's',
+                // 기존 셀 스타일 유지
+                s: existing ? existing.s : undefined
+              };
+            });
+            addedCount++;
+          });
+
+          // ref 범위 업데이트
+          const newLastRow = Math.max(lastRow, writeRow - 1);
+          ws['!ref'] = XLSX.utils.encode_range({
+            s: {r:0, c:0},
+            e: {r: newLastRow, c: range.e.c}
+          });
+
+          // 저장
+          const fileName = `밸브류관리대장_조서_${new Date().toISOString().split('T')[0]}.xlsx`;
+
+          const ok = await downloadExcel(wb, fileName, true);
+          if (ok) showToast(`✅ 조서 저장 완료! ${addedCount}건 반영`);
+
+        } catch(err) {
+          console.error(err);
+          showToast('❌ 파일 처리 오류: ' + err.message);
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    };
+    inp.click();
+  });
+}
+
+/* ═══════════════════════════════
    엑셀 내보내기
    — File System Access API (경로 선택) 지원 브라우저 우선
    — 미지원 시 기존 다운로드 방식 fallback
@@ -1494,57 +1626,95 @@ function renderMapTab() {
 async function exportExcel() {
   if (!records.length) { showToast('내보낼 기록이 없습니다'); return; }
 
-  const rows = records.map(r => ({
-    '조사연번':r.seqno,'관리번호':r.mgmtno,'조사일자':r.date,
-    '주소':r.addr,'대블록':r.bigblock,'중블록':r.midblock,'소블록':r.smallblock,'밸브상태':r.smallmemo||'',
-    'GPS':r.gps,
-    '밸브종류':r.vtype,'형식':r.vform,'구동방법':r.drive,'제작회사':r.maker,
-    '구경(mm)':r.dia,'재질':r.material,'설치년도':r.installyear,
-    '회전방향':r.rotation,'총회전수':r.totalrot,'현회전수':r.currot,
-    '심도':r.depth,'개폐여부':r.openclosed,
-    '밸브실크기':r.vroomSize,'소형철개':r.smcover,'보호통':r.protbox,'맨홀철개':r.manhole,
-    '밸브실비고':r.vremark||'',
-    '기타사항':r.notes,
-    '사진수':(r.photos||[]).filter(p=>p).length
-  }));
+  // 조사연번 오름차순 정렬
+  const sorted = [...records].sort((a, b) => {
+    const na = parseInt(a.seqno) || 0, nb = parseInt(b.seqno) || 0;
+    return na - nb;
+  });
 
   const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.json_to_sheet(rows);
-  ws['!cols'] = Object.keys(rows[0]).map(k => ({wch: k.length > 6 ? 18 : 13}));
-  XLSX.utils.book_append_sheet(wb, ws, '밸브류관리대장');
+
+  // ── 조서 시트 (대장양식참조용.xlsm 동일 구조) ──
+  const headers = [
+    '조사연번','관리번호','주소','종류','대블록','중블록','소블록',
+    '형식','구동방법','제작회사','구경','재질','설치년도',
+    '회전방향','회전수','개폐여부',
+    '보호통','밸브실','소형철개','맨홀철개','심도',
+    '조사일자','비고','밸브상태'
+  ];
+
+  const dataRows = sorted.map(r => [
+    r.seqno,                          // 조사연번
+    r.mgmtno,                         // 관리번호
+    r.addr,                           // 주소
+    r.vtype,                          // 종류
+    r.bigblock,                       // 대블록
+    r.midblock,                       // 중블록
+    r.smallblock,                     // 소블록
+    r.vform,                          // 형식
+    r.drive,                          // 구동방법
+    r.maker,                          // 제작회사
+    r.dia,                            // 구경
+    r.material,                       // 재질
+    r.installyear,                    // 설치년도
+    r.rotation,                       // 회전방향
+    r.totalrot,                       // 회전수(총)
+    r.openclosed,                     // 개폐여부
+    r.protbox,                        // 보호통
+    r.vroomSize,                      // 밸브실
+    r.smcover,                        // 소형철개
+    r.manhole,                        // 맨홀철개
+    r.depth,                          // 심도
+    r.date,                           // 조사일자
+    r.notes,                          // 비고(기타사항)
+    r.smallmemo                       // 밸브상태(개폐가능/불가)
+  ]);
+
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
+
+  // 열 너비 (조서 원본과 동일)
+  ws['!cols'] = [
+    {wch:9.25},  // 조사연번
+    {wch:11.25}, // 관리번호
+    {wch:15.875},// 주소
+    {wch:9.25},  // 종류
+    {wch:7.5},   // 대블록
+    {wch:7.5},   // 중블록
+    {wch:7.5},   // 소블록
+    {wch:8},     // 형식
+    {wch:9.25},  // 구동방법
+    {wch:8},     // 제작회사
+    {wch:5.625}, // 구경
+    {wch:8},     // 재질
+    {wch:9.25},  // 설치년도
+    {wch:8},     // 회전방향
+    {wch:7.5},   // 회전수
+    {wch:9.25},  // 개폐여부
+    {wch:7.5},   // 보호통
+    {wch:17.5},  // 밸브실
+    {wch:9.25},  // 소형철개
+    {wch:9.375}, // 맨홀철개
+    {wch:5.625}, // 심도
+    {wch:12.25}, // 조사일자
+    {wch:22.125},// 비고
+    {wch:12},    // 밸브상태
+  ];
+
+  // 헤더 행 굵게 + 가운데 정렬
+  headers.forEach((_, i) => {
+    const addr = XLSX.utils.encode_cell({r:0, c:i});
+    if (!ws[addr]) return;
+    ws[addr].s = { font:{bold:true, sz:11}, alignment:{horizontal:'center',vertical:'center'} };
+  });
+
+  // 헤더 행 높이
+  ws['!rows'] = [{hpt:20}];
+
+  XLSX.utils.book_append_sheet(wb, ws, '조서');
 
   const fileName = `밸브류관리대장_${new Date().toISOString().split('T')[0]}.xlsx`;
-
-  // ── File System Access API: 저장 경로 선택 가능한 브라우저 (PC Chrome 등) ──
-  if (window.showSaveFilePicker) {
-    try {
-      const handle = await window.showSaveFilePicker({
-        suggestedName: fileName,
-        types: [{
-          description: 'Excel 파일',
-          accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] }
-        }]
-      });
-      const wbOut = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-      const writable = await handle.createWritable();
-      await writable.write(new Blob([wbOut], { type: 'application/octet-stream' }));
-      await writable.close();
-      showToast('✅ 엑셀 저장 완료! 선택한 경로에 저장됐어요');
-      return;
-    } catch(err) {
-      if (err.name === 'AbortError') {
-        // 사용자가 취소
-        showToast('❌ 저장을 취소했어요');
-        return;
-      }
-      // 다른 오류 → fallback
-      console.warn('showSaveFilePicker 오류, fallback 사용:', err);
-    }
-  }
-
-  // ── Fallback: 기본 다운로드 (Android / iOS / 구형 브라우저) ──
-  XLSX.writeFile(wb, fileName);
-  showToast('📊 엑셀 다운로드 완료 (다운로드 폴더 확인)');
+  const ok = await downloadExcel(wb, fileName, false);
+  if (ok) showToast('📊 엑셀 저장 완료! 다운로드 폴더를 확인하세요');
 }
 
 /* ═══════════════════════════════
@@ -1563,6 +1733,43 @@ function showToast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg; t.classList.add('on');
   setTimeout(() => t.classList.remove('on'), 2800);
+}
+
+/* ═══════════════════════════════
+   모바일 호환 엑셀 다운로드 헬퍼
+═══════════════════════════════ */
+async function downloadExcel(wb, fileName, cellStyles) {
+  const opt = { bookType: 'xlsx', type: 'array' };
+  if (cellStyles) opt.cellStyles = true;
+  const wbOut = XLSX.write(wb, opt);
+  const blob = new Blob([wbOut], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+
+  // PC Chrome — 저장 경로 선택
+  if (window.showSaveFilePicker) {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: fileName,
+        types: [{ description: 'Excel 파일', accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] } }]
+      });
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return true;
+    } catch(err) {
+      if (err.name === 'AbortError') { showToast('❌ 저장을 취소했어요'); return false; }
+      // 오류 시 fallback
+    }
+  }
+
+  // 모바일 / fallback — a태그 클릭 방식
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(url); document.body.removeChild(a); }, 1500);
+  return true;
 }
 
 init();
