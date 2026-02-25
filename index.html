@@ -6,6 +6,7 @@
 <title>밸브류 관리대장 v1.2</title>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
 <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=3ddc7a06a7a28f64a2db46512879c789&libraries=services"></script>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
@@ -284,12 +285,19 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
    ══════════════════════════════════════════════════════ */
 .valve-row.disabled td{opacity:.35;pointer-events:none;user-select:none}
 
-/* 밸브현황 섹션헤더/세로라벨 — 절대 흐려지지 않음 */
-#valve-section-header td,
-#valve-vert{
+/* 밸브현황 섹션헤더 — 항상 선명 */
+#valve-section-header td{
   opacity:1 !important;
   pointer-events:auto !important;
   user-select:auto !important;
+}
+/* 밸브현황 세로라벨 — 개폐불가 시 다른 셀과 동일하게 흐리게 */
+#valve-vert{
+  opacity:1;
+  transition:opacity .2s;
+}
+#valve-vert.disabled{
+  opacity:.35 !important;
 }
 
 /* vroom 행: 헤더, 세로라벨 제외하고 비활성 처리 */
@@ -307,11 +315,8 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 }
 
 /* 비고 칸 비활성 클래스 — 맨홀철개/밸브실크기와 동일한 opacity */
-#vroom-remark-inp.remark-disabled{
-  opacity:.35;pointer-events:none;user-select:none;background:#f0f0f0
-}
 #vroom-remark-inp.remark-disabled select{
-  background:#f0f0f0;color:#aaa;cursor:not-allowed
+  background:#f0f0f0;color:#aaa;cursor:not-allowed;pointer-events:none
 }
 
 /* 소형철개 행 — disabled 자체를 막음(JS에서도 처리) */
@@ -604,13 +609,16 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
     </div>
   </td>
   <td class="lb-vroom" id="vroom-remark-lb">비고</td>
-  <td class="inp" colspan="2" id="vroom-remark-inp">
-    <select id="f-vremark" onchange="chkD(this,'dw-vremark')">
-      <option value="">-</option>
-      <option>외부매몰</option><option>내부 수몰</option><option>내부 토몰</option>
-      <option>보호통 이탈</option><option>스핀들탈락</option><option>현장없음</option><option value="__d__">직접입력...</option>
-    </select>
-    <div class="dw" id="dw-vremark"><input type="text" placeholder="직접 입력" id="dt-vremark"></div>
+  <td class="inp" colspan="2" id="vroom-remark-inp" style="position:relative">
+    <div class="manhole-disabled-wrap">
+      <select id="f-vremark" onchange="chkD(this,'dw-vremark')">
+        <option value="">-</option>
+        <option>외부매몰</option><option>내부 수몰</option><option>내부 토몰</option>
+        <option>보호통 이탈</option><option>스핀들탈락</option><option>현장없음</option><option value="__d__">직접입력...</option>
+      </select>
+      <div class="dw" id="dw-vremark"><input type="text" placeholder="직접 입력" id="dt-vremark"></div>
+      <div class="manhole-disabled-badge" id="remarkDisabledBadge">🚫 개폐가능 시 입력불가</div>
+    </div>
   </td>
 </tr>
 <tr class="vroom-tr">
@@ -1069,34 +1077,46 @@ function selValveState(v){
 }
 
 function applyVremarkDisabled(disabled){
-  const sel  = document.getElementById('f-vremark');
-  const dw   = document.getElementById('dw-vremark');
-  const dt   = document.getElementById('dt-vremark');
-  const lb   = document.getElementById('vroom-remark-lb');
-  const inp  = document.getElementById('vroom-remark-inp');
+  const sel = document.getElementById('f-vremark');
+  const dw  = document.getElementById('dw-vremark');
+  const dt  = document.getElementById('dt-vremark');
   if(!sel) return;
   if(disabled){
     sel.disabled = true;
     sel.value = '';
-    sel.style.background = '';
-    sel.style.color = '';
-    sel.style.cursor = '';
     if(dw) dw.classList.remove('on');
     if(dt) dt.value = '';
-    /* 입력칸만 비활성 — 맨홀철개/밸브실크기와 동일한 opacity:.35 */
-    if(inp) inp.classList.add('remark-disabled');
+    /* 마커: 소형/맨홀 값 있을 때만 표시 — 오버레이 방식으로 맨홀철개·밸브실크기와 완전 동일 */
+    _syncRemarkBadge();
   } else {
     sel.disabled = false;
-    if(inp) inp.classList.remove('remark-disabled');
+    const rb = document.getElementById('remarkDisabledBadge');
+    if(rb) rb.classList.remove('on');
   }
 }
 
+/* 비고 마커 표시 여부 동기화 — 개폐가능(비활성) + 소형/맨홀 값 있을 때만 ON */
+function _syncRemarkBadge(){
+  const rb = document.getElementById('remarkDisabledBadge');
+  if(!rb) return;
+  const sel = document.getElementById('f-vremark');
+  const isDisabled = sel && sel.disabled;
+  const smVal = document.getElementById('f-smcover')?.value || '';
+  const mhVal = document.getElementById('f-manhole')?.value || '';
+  const dtSm  = document.getElementById('dt-smcover')?.value.trim() || '';
+  const dtMh  = document.getElementById('dt-manhole')?.value.trim() || '';
+  const hasSmOrMh = smVal !== '' || mhVal !== '' || dtSm !== '' || dtMh !== '';
+  rb.classList.toggle('on', isDisabled && hasSmOrMh);
+}
+
 function applyValveSectionDisabled(disabled){
-  /* ── 밸브현황 행만 비활성 (섹션헤더/세로라벨 제외 — CSS !important로도 보호) ── */
+  /* ── 밸브현황 행만 비활성, 세로라벨도 같이 흐리게 ── */
   document.querySelectorAll('.valve-row').forEach(tr=>{
     tr.classList.toggle('disabled', disabled);
     tr.querySelectorAll('input,select,button').forEach(el=>el.disabled=disabled);
   });
+  const valveVert = document.getElementById('valve-vert');
+  if(valveVert) valveVert.classList.toggle('disabled', disabled);
 
   /* ── 밸브실 크기 행만 비활성 ── */
   document.querySelectorAll('.vroom-tr').forEach(tr=>{
@@ -1135,7 +1155,7 @@ function syncSmcoverManhole(){
   const hasSmcover = smVal !== '';
   const hasManhole = mhVal !== '';
   const is648      = mhVal === '648';
-  const smNoVroom  = ['185','265','318'].includes(smVal) || hasSmcover;
+  const smNoVroom  = false; /* 밸브실크기는 항상 입력 가능 */
 
   /* ── 소형철개 있으면 → 맨홀철개 비활성 ── */
   if(hasSmcover){
@@ -1174,6 +1194,9 @@ function syncSmcoverManhole(){
     else { el.style.background=''; el.style.cursor=''; }
   });
   if(vrBadge) vrBadge.classList.toggle('on', smNoVroom);
+
+  /* 비고 마커 동기화 */
+  _syncRemarkBadge();
 }
 function onSmcoverChange(){ syncSmcoverManhole(); }
 function onManholeChange(){ chkD(document.getElementById('f-manhole'),'dw-manhole'); syncSmcoverManhole(); }
@@ -1598,30 +1621,135 @@ function renderMapTab(){
 /* ── 엑셀 내보내기 ── */
 async function exportExcel(){
   if(!records.length){ showToast('내보낼 기록이 없습니다'); return; }
-  const sorted=[...records].sort((a,b)=>(parseInt(a.seqno)||0)-(parseInt(b.seqno)||0));
-  const wb=XLSX.utils.book_new();
-  const headers=['조사연번','관리번호','주소','종류','대블록','중블록','소블록','형식','구동방법','제작회사','구경','재질','설치년도','회전방향','회전수','개폐여부','보호통','밸브실','소형철개','맨홀철개','심도','조사일자','비고','밸브상태'];
-  const dataRows=sorted.map(r=>[r.seqno,r.mgmtno,r.addr,r.vtype,r.bigblock,r.midblock,r.smallblock,r.vform,r.drive,r.maker,r.dia,r.material,r.installyear,r.rotation,r.totalrot,r.openclosed,r.protbox,r.vroomSize,r.smcover,r.manhole,r.depth,r.date,r.notes,r.smallmemo]);
-  const ws=XLSX.utils.aoa_to_sheet([headers,...dataRows]);
-  ws['!cols']=[{wch:9},{wch:11},{wch:16},{wch:9},{wch:8},{wch:8},{wch:8},{wch:8},{wch:9},{wch:8},{wch:6},{wch:8},{wch:9},{wch:8},{wch:8},{wch:9},{wch:8},{wch:18},{wch:9},{wch:9},{wch:6},{wch:12},{wch:22},{wch:12}];
-  XLSX.utils.book_append_sheet(wb, ws, '조서');
-  const ok=await downloadExcel(wb,`밸브류관리대장_${new Date().toISOString().split('T')[0]}.xlsx`);
-  if(ok) showToast('📊 엑셀 저장 완료!');
-}
+  if(typeof ExcelJS === 'undefined'){ showToast('⏳ 라이브러리 로딩 중... 잠시 후 다시 눌러주세요'); return; }
 
-async function downloadExcel(wb, fileName){
-  const wbOut=XLSX.write(wb,{bookType:'xlsx',type:'array'});
-  const blob=new Blob([wbOut],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  const sorted   = [...records].sort((a,b)=>(parseInt(a.seqno)||0)-(parseInt(b.seqno)||0));
+  const fileName = `밸브류관리대장_${new Date().toISOString().split('T')[0]}.xlsx`;
+
+  const wb = new ExcelJS.Workbook();
+  wb.creator = '밸브류관리대장';
+
+  /* 시트 : 확대/축소 85%, 1행 고정 */
+  const ws = wb.addWorksheet('조서', {
+    views: [{ state:'frozen', ySplit:1, zoomScale:85 }]
+  });
+
+  /* ── 열 정의 ── */
+  const COL_DEFS = [
+    {header:'조사연번',  key:'seqno',       width:9},
+    {header:'관리번호',  key:'mgmtno',      width:11},
+    {header:'주소',      key:'addr',        width:20},
+    {header:'종류',      key:'vtype',       width:9},
+    {header:'대블록',    key:'bigblock',    width:7},
+    {header:'중블록',    key:'midblock',    width:7},
+    {header:'소블록',    key:'smallblock',  width:8},
+    {header:'형식',      key:'vform',       width:8},
+    {header:'구동방법',  key:'drive',       width:8},
+    {header:'제작회사',  key:'maker',       width:9},
+    {header:'구경',      key:'dia',         width:6},
+    {header:'재질',      key:'material',    width:7},
+    {header:'설치년도',  key:'installyear', width:9},
+    {header:'회전방향',  key:'rotation',    width:8},
+    {header:'회전수',    key:'totalrot',    width:7},
+    {header:'개폐여부',  key:'openclosed',  width:8},
+    {header:'보호통',    key:'protbox',     width:7},
+    {header:'밸브실',    key:'vroomSize',   width:18},
+    {header:'소형철개',  key:'smcover',     width:8},
+    {header:'맨홀철개',  key:'manhole',     width:8},
+    {header:'심도',      key:'depth',       width:6},
+    {header:'조사일자',  key:'date',        width:11},
+    {header:'비고',      key:'notes',       width:22},
+  ];
+  ws.columns = COL_DEFS;
+  const TOTAL_COLS = COL_DEFS.length;
+
+  /* ── 공통 스타일 헬퍼 ── */
+  /* 헤더 배경: 테마색 흰색/배경1 15% 더 어둡게 → D9D9D9 */
+  const HDR_BG   = 'FFD9D9D9';
+  const HDR_FONT = { name:'맑은 고딕', bold:true, size:11, color:{argb:'FF000000'} };
+
+  /* 헤더행 하단 = 이중선, 나머지 테두리 = thin */
+  const hdrBorder = (colIdx) => ({
+    top:    { style:'thin',   color:{argb:'FF000000'} },
+    left:   { style:'thin',   color:{argb:'FF000000'} },
+    right:  { style:'thin',   color:{argb:'FF000000'} },
+    bottom: { style:'medium', color:{argb:'FF000000'} },   /* 헤더↔데이터 사이 이중 강조 */
+  });
+
+  /* 데이터행 테두리: 점선(hair) */
+  const dataBorder = {
+    top:    { style:'hair', color:{argb:'FF999999'} },
+    left:   { style:'hair', color:{argb:'FF999999'} },
+    bottom: { style:'hair', color:{argb:'FF999999'} },
+    right:  { style:'hair', color:{argb:'FF999999'} },
+  };
+
+  /* ── 1행: 헤더 ── */
+  const headerRow = ws.getRow(1);
+  headerRow.height = 18;
+  for(let c = 1; c <= TOTAL_COLS; c++){
+    const cell = headerRow.getCell(c);
+    cell.font      = HDR_FONT;
+    cell.fill      = { type:'pattern', pattern:'solid', fgColor:{argb:HDR_BG} };
+    cell.alignment = { horizontal:'center', vertical:'middle', wrapText:false };
+    cell.border    = hdrBorder(c);
+  }
+
+  /* ── 데이터 행 ── */
+  sorted.forEach((r, i) => {
+    const row = ws.addRow({
+      seqno:r.seqno,         mgmtno:r.mgmtno,       addr:r.addr,
+      vtype:r.vtype,         bigblock:r.bigblock,    midblock:r.midblock,
+      smallblock:r.smallblock, vform:r.vform,        drive:r.drive,
+      maker:r.maker,         dia:r.dia,              material:r.material,
+      installyear:r.installyear, rotation:r.rotation, totalrot:r.totalrot,
+      openclosed:r.openclosed, protbox:r.protbox,    vroomSize:r.vroomSize,
+      smcover:r.smcover,     manhole:r.manhole,      depth:r.depth,
+      date:r.date,           notes:r.notes,
+    });
+    row.height = 14;
+
+    for(let c = 1; c <= TOTAL_COLS; c++){
+      const cell = row.getCell(c);
+      cell.font      = { name:'맑은 고딕', size:10, color:{argb:'FF000000'} };
+      cell.fill      = { type:'pattern', pattern:'solid', fgColor:{argb:'FFFFFFFF'} };
+      cell.alignment = { horizontal:'center', vertical:'middle', wrapText:false };
+      cell.border    = dataBorder;
+    }
+
+    /* 주소·밸브실·비고 좌측 정렬 */
+    ['addr','vroomSize','notes'].forEach(k => {
+      const col = ws.getColumn(k);
+      if(col) row.getCell(col.number).alignment = { horizontal:'left', vertical:'middle', wrapText:false };
+    });
+
+    /* OPEN → 초록, CLOSE → 빨강 굵게 */
+    const ocCell = row.getCell(ws.getColumn('openclosed').number);
+    if(r.openclosed === 'OPEN')
+      ocCell.font = { name:'맑은 고딕', size:10, bold:true, color:{argb:'FF2E7D32'} };
+    else if(r.openclosed === 'CLOSE')
+      ocCell.font = { name:'맑은 고딕', size:10, bold:true, color:{argb:'FFC62828'} };
+  });
+
+  /* ── 파일 다운로드 ── */
+  const buf  = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
   if(window.showSaveFilePicker){
     try{
-      const handle=await window.showSaveFilePicker({suggestedName:fileName,types:[{description:'Excel',accept:{'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':['.xlsx']}}]});
-      const writable=await handle.createWritable(); await writable.write(blob); await writable.close(); return true;
-    }catch(err){ if(err.name==='AbortError'){showToast('❌ 저장을 취소했어요'); return false;} }
+      const handle = await window.showSaveFilePicker({
+        suggestedName: fileName,
+        types: [{description:'Excel', accept:{'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':['.xlsx']}}]
+      });
+      const writable = await handle.createWritable();
+      await writable.write(blob); await writable.close();
+      showToast('📊 엑셀 저장 완료!'); return;
+    }catch(err){ if(err.name==='AbortError'){ showToast('❌ 저장을 취소했어요'); return; } }
   }
-  const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=fileName;
+  const url = URL.createObjectURL(blob);
+  const a   = document.createElement('a'); a.href=url; a.download=fileName;
   document.body.appendChild(a); a.click();
-  setTimeout(()=>{ URL.revokeObjectURL(url); document.body.removeChild(a); },1500);
-  return true;
+  setTimeout(()=>{ URL.revokeObjectURL(url); document.body.removeChild(a); }, 1500);
+  showToast('📊 엑셀 저장 완료!');
 }
 
 /* ── JSON 백업 / 불러오기 ── */
