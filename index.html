@@ -389,6 +389,26 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(70px);background:rgba(13,49,112,.95);color:#fff;padding:12px 24px;border-radius:50px;font-size:13px;font-weight:700;z-index:999;transition:transform .3s cubic-bezier(.34,1.56,.64,1);white-space:nowrap;box-shadow:0 6px 24px rgba(0,0,0,.25);backdrop-filter:blur(8px)}
 .toast.on{transform:translateX(-50%) translateY(0)}
 @media(min-width:480px){.dj-wrap,.list-pg,.map-pg{padding:16px}}
+
+/* ── 작업자 세션 모달 ── */
+.worker-modal-ov{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:500;display:flex;align-items:center;justify-content:center}
+.worker-modal{background:#fff;border-radius:20px;padding:32px 24px;width:88%;max-width:340px;box-shadow:0 20px 60px rgba(0,0,0,.3);text-align:center}
+.worker-modal h2{font-size:18px;font-weight:900;color:var(--blue-dark);margin-bottom:6px}
+.worker-modal p{font-size:12px;color:var(--muted);margin-bottom:20px;line-height:1.5}
+.worker-modal input{width:100%;box-sizing:border-box;border:2px solid #c5d8f0;border-radius:10px;padding:12px 14px;font-family:'Noto Sans KR',sans-serif;font-size:15px;font-weight:700;color:var(--blue-dark);outline:none;text-align:center;margin-bottom:14px}
+.worker-modal input:focus{border-color:var(--blue-mid);box-shadow:0 0 0 3px rgba(66,133,244,.2)}
+.worker-modal-btn{width:100%;padding:13px;background:linear-gradient(135deg,var(--blue-dark),var(--blue-mid));border:none;border-radius:10px;color:#fff;font-family:'Noto Sans KR',sans-serif;font-size:15px;font-weight:900;cursor:pointer}
+.worker-modal-btn:disabled{opacity:.5;cursor:not-allowed}
+/* 작업자 뱃지 (헤더) */
+.worker-badge{font-size:11px;background:rgba(255,255,255,.15);padding:3px 8px;border-radius:10px;color:#fff;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:4px;white-space:nowrap}
+.worker-badge:hover{background:rgba(255,255,255,.25)}
+/* 목록 탭 (내 기록 / 전체) */
+.list-tabs{display:flex;gap:0;margin-bottom:10px;border-radius:10px;overflow:hidden;border:1.5px solid var(--blue-mid)}
+.list-tab-btn{flex:1;padding:8px 0;border:none;background:#fff;color:var(--blue-mid);font-family:'Noto Sans KR',sans-serif;font-size:13px;font-weight:700;cursor:pointer;transition:background .15s,color .15s}
+.list-tab-btn.active{background:var(--blue-dark);color:#fff}
+/* 목록 카드에 작업자 표시 */
+.r-author{font-size:10px;background:rgba(144,202,249,.25);color:var(--blue-dark);padding:2px 6px;border-radius:6px;font-weight:700;flex-shrink:0}
+.r-author.mine{background:rgba(46,125,50,.18);color:#2e7d32}
 </style>
 </head>
 <body>
@@ -404,6 +424,7 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
     </div>
     <div class="header-right">
       <span class="ver-badge">v1.2</span>
+      <span class="worker-badge" id="workerBadge" onclick="changeWorker()" title="클릭하면 작업자 변경">👷 <span id="workerBadgeName">-</span></span>
       <span id="fbStatus" title="Firebase 연결 상태" style="font-size:13px;padding:3px 8px;border-radius:10px;background:rgba(255,255,255,.1);color:#90caf9;margin-right:2px">🔄</span>
       <span class="header-badge" id="recordCount">0건</span>
     </div>
@@ -711,6 +732,10 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
       <div class="stat-chip"><div class="stat-num" id="statClose" style="color:var(--red)">0</div><div class="stat-lbl">CLOSE</div></div>
       <div class="stat-chip"><div class="stat-num" id="statGps" style="color:var(--blue)">0</div><div class="stat-lbl">GPS</div></div>
     </div>
+    <div class="list-tabs">
+      <button class="list-tab-btn active" id="listTabMine" onclick="setListTab('mine')">👤 내 기록</button>
+      <button class="list-tab-btn" id="listTabAll" onclick="setListTab('all')">📋 전체 기록</button>
+    </div>
     <div class="list-bar">
       <select id="filterType" onchange="renderList()">
         <option value="">전체 종류</option>
@@ -762,6 +787,16 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
   </div>
 </div>
 <div class="toast" id="toast"></div>
+<!-- 작업자 세션 모달 -->
+<div class="worker-modal-ov" id="workerModalOv">
+  <div class="worker-modal">
+    <h2>👷 작업자 확인</h2>
+    <p>여러 명이 동시에 작업할 수 있어요.<br>이름을 입력하면 내 기록을 따로 볼 수 있어요.</p>
+    <input type="text" id="workerNameInput" placeholder="이름 또는 팀명 입력" maxlength="10" oninput="document.getElementById('workerStartBtn').disabled=!this.value.trim()" onkeydown="if(event.key==='Enter')startWorkerSession()">
+    <button class="worker-modal-btn" id="workerStartBtn" disabled onclick="startWorkerSession()">시작하기</button>
+  </div>
+</div>
+
 
 <script>
 
@@ -896,6 +931,31 @@ const VFORM_OPTIONS = {
 };
 
 let photos=[null,null,null,null], gpsData=null, selOCVal='', selValveStateVal='', records=[];
+let currentWorker = '';   /* 현재 작업자 이름 */
+let listTabMode   = 'mine'; /* 'mine' | 'all' */
+
+/* ── 작업자 세션 ── */
+function startWorkerSession(){
+  const name = document.getElementById('workerNameInput').value.trim();
+  if(!name) return;
+  currentWorker = name;
+  localStorage.setItem('valve-worker', name);
+  document.getElementById('workerBadgeName').textContent = name;
+  document.getElementById('workerModalOv').style.display = 'none';
+  renderList();
+}
+function changeWorker(){
+  document.getElementById('workerNameInput').value = currentWorker;
+  document.getElementById('workerStartBtn').disabled = false;
+  document.getElementById('workerModalOv').style.display = 'flex';
+  setTimeout(()=>document.getElementById('workerNameInput').focus(), 100);
+}
+function setListTab(mode){
+  listTabMode = mode;
+  document.getElementById('listTabMine').classList.toggle('active', mode==='mine');
+  document.getElementById('listTabAll').classList.toggle('active', mode==='all');
+  renderList();
+}
 Object.defineProperty(window,'_records',{ get(){return records;}, set(v){records=v;} });
 
 /* ── 초기화 ── */
@@ -906,6 +966,16 @@ function init(){
   applyVremarkDisabled(true);
   document.getElementById('mOv').addEventListener('click',e=>{ if(e.target===document.getElementById('mOv')) closeModal(); });
   document.getElementById('mCloseBtn').addEventListener('click', closeModal);
+  /* 작업자 복원 */
+  const saved = localStorage.getItem('valve-worker');
+  if(saved){
+    currentWorker = saved;
+    document.getElementById('workerBadgeName').textContent = saved;
+    document.getElementById('workerModalOv').style.display = 'none';
+  } else {
+    document.getElementById('workerModalOv').style.display = 'flex';
+    setTimeout(()=>document.getElementById('workerNameInput').focus(), 300);
+  }
 }
 
 function getNextSeqno(){
@@ -1385,7 +1455,7 @@ async function saveRecord(){
   const vroomSize=(vr1||vr2||vr3)?`${vr1||'?'} × ${vr2||'?'} × ${vr3||'?'} m`:'';
 
   const rec={
-    id:Date.now(), date:g('f-date'), seqno:parseInt(seqno)||getNextSeqno(),
+    id:Date.now(), date:g('f-date'), seqno:parseInt(seqno)||getNextSeqno(), author:currentWorker,
     mgmtno:g('f-mgmtno'), addr:g('f-addr')||gpsData?.addr||'',
     bigblock:g('f-bigblock'), midblock:gv('f-midblock','dt-midblock'), smallblock:gv('f-smallblock','dt-smallblock'), smallmemo:selValveStateVal,
     gps:gpsData?`${gpsData.lat},${gpsData.lng}`:'',
@@ -1554,6 +1624,9 @@ async function deleteSelected() {
 function renderList(){
   const ft=document.getElementById('filterType').value, sq=document.getElementById('searchBox').value.toLowerCase();
   let list=records;
+  /* 내 기록 탭 필터 */
+  if(listTabMode === 'mine' && currentWorker)
+    list = list.filter(r => r.author === currentWorker);
   if(ft) list=list.filter(r=>r.vtype===ft);
   if(sq) list=list.filter(r=>(r.mgmtno||'').toLowerCase().includes(sq)||(r.addr||'').toLowerCase().includes(sq)||String(r.seqno||'').includes(sq));
   document.getElementById('statTotal').textContent=records.length;
@@ -1571,6 +1644,7 @@ function renderList(){
       <div class="r-head" style="${isSelected ? 'background:linear-gradient(135deg,#c62828,#e53935)' : ''}">
         ${deleteMode ? `<input type="checkbox" ${isSelected ? 'checked' : ''} onclick="toggleSelectCard(${r.id},event)" style="width:18px;height:18px;cursor:pointer;flex-shrink:0;accent-color:#fff">` : ''}
         <span class="r-seq">#${r.seqno||'?'}</span>
+        ${r.author?`<span class="r-author${r.author===currentWorker?' mine':''}">👤${r.author}</span>`:''}
         <span class="r-ttl">${title}</span>
         <span style="font-size:11px;opacity:.7">${r.date||''}</span>
       </div>
