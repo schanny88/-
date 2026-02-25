@@ -3,16 +3,15 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>밸브류 관리대장 v1.0</title>
+<title>밸브류 관리대장 v1.1</title>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script type="module">
-/* ═══════════════════════════════
-   Firebase 초기화 & Firestore 연동
-═══════════════════════════════ */
-import { initializeApp } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
-import { getFirestore, collection, doc, setDoc, getDocs, deleteDoc, onSnapshot, writeBatch }
-  from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, writeBatch }
+  from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+import { getStorage, ref, uploadString, getDownloadURL, deleteObject }
+  from "https://www.gstatic.com/firebasejs/10.14.1/firebase-storage.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCTXpgGzueSLWm5cOwVkDCI6Gks6U5AoFA",
@@ -23,415 +22,306 @@ const firebaseConfig = {
   appId: "1:278761673958:web:a1c31644fa9b6a03ac1727"
 };
 
-const fbApp  = initializeApp(firebaseConfig);
-const db     = getFirestore(fbApp);
-const COL    = 'valve-records';
+function setFbStatus(emoji, color) {
+  const el = document.getElementById('fbStatus');
+  if (el) { el.textContent = emoji; el.style.color = color || '#90caf9'; }
+}
 
-// ── 전역에 노출 (기존 JS에서 호출 가능하도록) ──
-window._db    = db;
-window._col   = COL;
-window._fbReady = true;
+let fbApp, db, storage;
+try {
+  fbApp   = initializeApp(firebaseConfig);
+  db      = getFirestore(fbApp);
+  storage = getStorage(fbApp);
+  window._db      = db;
+  window._storage = storage;
+  window._col     = 'valve-records';
+  window._fbReady = true;
+  setFbStatus('🔄', '#90caf9');
+  console.log('✅ Firebase 초기화 완료 (Firestore + Storage)');
+} catch(e) {
+  console.error('❌ Firebase 초기화 실패:', e);
+  setFbStatus('❌', '#ef9a9a');
+}
 
-// ── Firestore → 로컬 실시간 동기화 ──
-onSnapshot(collection(db, COL), (snapshot) => {
-  if (!snapshot || snapshot.empty) return;
-  const fbRecords = [];
-  snapshot.forEach(d => fbRecords.push(d.data()));
+/* ── Firestore 실시간 동기화 ── */
+if (db) {
+  onSnapshot(collection(db, 'valve-records'),
+    (snapshot) => {
+      setFbStatus('☁️', '#a5d6a7');
+      if (!snapshot || snapshot.empty) return;
+      const fbRecords = [];
+      snapshot.forEach(d => fbRecords.push(d.data()));
 
-  // 사진 제외 필드만 동기화 (용량 절약 — 사진은 로컬 유지)
-  fbRecords.forEach(fb => {
-    const idx = window._records ? window._records.findIndex(r => String(r.id) === String(fb.id)) : -1;
-    if (idx >= 0) {
-      // 기존 레코드 업데이트 (사진은 로컬 것 유지)
-      const localPhotos = window._records[idx].photos;
-      window._records[idx] = { ...fb, photos: localPhotos || fb.photos || [] };
-    } else if (window._records) {
-      window._records.push(fb);
+      fbRecords.forEach(fb => {
+        const idx = window._records
+          ? window._records.findIndex(r => String(r.id) === String(fb.id))
+          : -1;
+        if (idx >= 0) {
+          // 로컬 사진(base64) 유지, 클라우드 URL은 덮어쓰기
+          const localPhotos = window._records[idx].photos;
+          window._records[idx] = {
+            ...fb,
+            photos: localPhotos || fb.photos || [null,null,null,null]
+          };
+        } else if (window._records) {
+          window._records.push(fb);
+        }
+      });
+
+      if (window._records) {
+        window._records.sort((a,b) => (parseInt(a.seqno)||0)-(parseInt(b.seqno)||0));
+        try { localStorage.setItem('valve-v7', JSON.stringify(window._records)); } catch(e) {}
+        if (window.renderList)  window.renderList();
+        if (window.updateBadge) window.updateBadge();
+      }
+    },
+    (err) => {
+      console.warn('Firestore 오류:', err);
+      setFbStatus('⚠️', '#ffb74d');
     }
-  });
+  );
+}
 
-  if (window._records) {
-    window._records.sort((a,b) => (parseInt(a.seqno)||0)-(parseInt(b.seqno)||0));
-    try { localStorage.setItem('valve-v7', JSON.stringify(window._records)); } catch(e) {}
-    if (window.renderList) window.renderList();
-    if (window.updateBadge) window.updateBadge();
+/* ── Storage 사진 업로드 ──
+   photos[2] → "{seqno}-3"
+   photos[3] → "{seqno}-4"
+   index 0,1은 내부작업 예정이므로 업로드 안 함
+*/
+window.fbUploadPhotos = async function(rec) {
+  if (!storage) return;
+  const photoMap = { 2: '3', 3: '4' }; // photos 인덱스 → 파일명 suffix
+  const urlUpdates = {};
+
+  for (const [idx, suffix] of Object.entries(photoMap)) {
+    const dataUrl = rec.photos[parseInt(idx)];
+    if (!dataUrl || dataUrl.startsWith('http')) continue; // 이미 URL이면 스킵
+
+    try {
+      const fileName = `${rec.seqno}-${suffix}`;
+      const storageRef = ref(storage, `photos/${fileName}`);
+      // base64 data URL → Storage 업로드
+      await uploadString(storageRef, dataUrl, 'data_url');
+      const downloadUrl = await getDownloadURL(storageRef);
+      urlUpdates[parseInt(idx)] = downloadUrl;
+      console.log(`📸 Storage 업로드 완료: ${fileName}`);
+    } catch(e) {
+      console.warn(`Storage 업로드 오류 (index ${idx}):`, e);
+    }
   }
-});
 
-// ── Firestore 저장 함수 (사진 제외, 용량 절약) ──
+  // 업로드된 사진 URL을 records에 반영
+  if (Object.keys(urlUpdates).length > 0) {
+    const recIdx = window._records
+      ? window._records.findIndex(r => String(r.id) === String(rec.id))
+      : -1;
+    if (recIdx >= 0) {
+      const newPhotos = [...(window._records[recIdx].photos || [null,null,null,null])];
+      for (const [idx, url] of Object.entries(urlUpdates)) {
+        newPhotos[parseInt(idx)] = url;
+      }
+      window._records[recIdx].photos = newPhotos;
+      try { localStorage.setItem('valve-v7', JSON.stringify(window._records)); } catch(e) {}
+    }
+    return urlUpdates;
+  }
+  return {};
+};
+
+/* ── Firestore 저장 (사진 URL 포함, base64 제외) ── */
 window.fbSaveRecord = async function(rec) {
-  if (!window._db) return;
+  if (!db) return;
   try {
-    const data = { ...rec };
-    delete data.photos; // 사진은 Firestore에 저장 안 함 (용량 초과 방지)
-    await setDoc(doc(db, COL, String(rec.id)), data);
-  } catch(e) { console.warn('Firestore 저장 오류:', e); }
+    setFbStatus('🔄', '#90caf9');
+
+    // 1) 사진 Storage 업로드 → URL 받기
+    const urlUpdates = await window.fbUploadPhotos(rec);
+
+    // 2) Firestore에 저장할 데이터 구성
+    //    photos 배열: base64는 제거, Storage URL만 포함
+    const cleanPhotos = (rec.photos || [null,null,null,null]).map((p, i) => {
+      if (urlUpdates[i]) return urlUpdates[i];           // 새로 업로드된 URL
+      if (p && p.startsWith('http')) return p;           // 기존 URL
+      return null;                                        // base64 또는 null → null로
+    });
+
+    const data = { ...rec, photos: cleanPhotos };
+    await setDoc(doc(db, 'valve-records', String(rec.id)), data);
+    setFbStatus('☁️', '#a5d6a7');
+    console.log('✅ Firestore 저장 완료:', rec.seqno);
+  } catch(e) {
+    console.warn('Firestore 저장 오류:', e);
+    setFbStatus('⚠️', '#ffb74d');
+  }
 };
 
-// ── Firestore 삭제 함수 ──
-window.fbDeleteRecord = async function(id) {
-  if (!window._db) return;
-  try { await deleteDoc(doc(db, COL, String(id))); }
-  catch(e) { console.warn('Firestore 삭제 오류:', e); }
+/* ── Firestore + Storage 삭제 ── */
+window.fbDeleteRecord = async function(rec) {
+  if (!db) return;
+  try {
+    // Storage 사진 삭제
+    if (storage) {
+      const seqno = rec.seqno;
+      for (const suffix of ['3','4']) {
+        try {
+          const r = ref(storage, `photos/${seqno}-${suffix}`);
+          await deleteObject(r);
+          console.log(`🗑 Storage 삭제: ${seqno}-${suffix}`);
+        } catch(e) { /* 파일 없으면 무시 */ }
+      }
+    }
+    await deleteDoc(doc(db, 'valve-records', String(rec.id)));
+    setFbStatus('☁️', '#a5d6a7');
+  } catch(e) {
+    console.warn('삭제 오류:', e);
+    setFbStatus('⚠️', '#ffb74d');
+  }
 };
 
-// ── 전체 업로드 (불러오기 후 Firestore에 일괄 동기화) ──
+/* ── 전체 동기화 ── */
 window.fbSyncAll = async function(recs) {
-  if (!window._db) return;
+  if (!db) return;
   try {
     const batch = writeBatch(db);
-    recs.forEach(r => {
-      const data = { ...r };
-      delete data.photos;
-      batch.set(doc(db, COL, String(r.id)), data);
-    });
+    for (const r of recs) {
+      // 각 레코드 사진 업로드
+      const urlUpdates = await window.fbUploadPhotos(r);
+      const cleanPhotos = (r.photos || [null,null,null,null]).map((p, i) => {
+        if (urlUpdates[i]) return urlUpdates[i];
+        if (p && p.startsWith('http')) return p;
+        return null;
+      });
+      batch.set(doc(db, 'valve-records', String(r.id)), { ...r, photos: cleanPhotos });
+    }
     await batch.commit();
-    console.log('Firestore 전체 동기화 완료');
-  } catch(e) { console.warn('Firestore 동기화 오류:', e); }
+    setFbStatus('☁️', '#a5d6a7');
+    console.log('✅ 전체 동기화 완료');
+  } catch(e) {
+    console.warn('전체 동기화 오류:', e);
+    setFbStatus('⚠️', '#ffb74d');
+  }
 };
 
-console.log('✅ Firebase 초기화 완료');
+console.log('✅ Firebase 모듈 로드 완료');
 </script>
 <style>
-:root {
-  --bg:#f0f4f8;
-  --white:#fff;
-  --blue:#1e5fad;
-  --blue-dark:#0d3170;
-  --blue-mid:#1a4fa0;
-  --blue-light:#e8f0fe;
-  --blue-pale:#f0f5ff;
-  --border:#b0bec5;
-  --bdark:#78909c;
-  --text:#1a2332;
-  --muted:#546e7a;
-  --cell:#fafbfc;
-  --hbg:#dde8f5;
-  --green:#2e7d32;
-  --red:#c62828;
-  --amber:#e65100;
-  --shadow: 0 2px 12px rgba(13,49,112,.10);
-  --shadow-lg: 0 6px 28px rgba(13,49,112,.16);
+:root{
+  --bg:#f0f4f8;--white:#fff;--blue:#1e5fad;--blue-dark:#0d3170;--blue-mid:#1a4fa0;
+  --blue-light:#e8f0fe;--blue-pale:#f0f5ff;--border:#b0bec5;--bdark:#78909c;
+  --text:#1a2332;--muted:#546e7a;--cell:#fafbfc;--hbg:#dde8f5;
+  --green:#2e7d32;--red:#c62828;--amber:#e65100;
+  --shadow:0 2px 12px rgba(13,49,112,.10);--shadow-lg:0 6px 28px rgba(13,49,112,.16);
 }
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 html,body{width:100%;overflow-x:hidden}
 body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
-
-/* ── 헤더 ── */
-.app-header{
-  background:linear-gradient(135deg,var(--blue-dark) 0%,var(--blue-mid) 100%);
-  position:sticky;top:0;z-index:100;
-  box-shadow:0 3px 16px rgba(0,0,0,.28)
-}
+.app-header{background:linear-gradient(135deg,var(--blue-dark) 0%,var(--blue-mid) 100%);position:sticky;top:0;z-index:100;box-shadow:0 3px 16px rgba(0,0,0,.28)}
 .header-top{padding:13px 16px;display:flex;align-items:center;justify-content:space-between}
 .header-left{display:flex;align-items:center;gap:10px}
 .header-icon{width:36px;height:36px;border-radius:10px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-size:18px}
 .header-title{font-size:16px;font-weight:900;color:#fff;letter-spacing:.5px}
 .header-sub{font-size:10px;color:rgba(255,255,255,.55);margin-top:1px}
 .header-right{display:flex;align-items:center;gap:8px}
-.header-badge{font-family:'JetBrains Mono',monospace;font-size:11px;background:rgba(255,255,255,.13);padding:5px 11px;border-radius:20px;color:#90caf9;border:1px solid rgba(255,255,255,.18);cursor:default}
+.header-badge{font-family:'JetBrains Mono',monospace;font-size:11px;background:rgba(255,255,255,.13);padding:5px 11px;border-radius:20px;color:#90caf9;border:1px solid rgba(255,255,255,.18)}
 .ver-badge{font-size:10px;background:rgba(144,202,249,.2);padding:3px 8px;border-radius:10px;color:#90caf9;font-weight:700}
-
 .tab-bar{display:flex;background:rgba(0,0,0,.18);border-top:1px solid rgba(255,255,255,.08)}
 .tab-btn{flex:1;padding:11px 4px;border:none;background:none;color:rgba(255,255,255,.55);font-family:'Noto Sans KR',sans-serif;font-size:12px;font-weight:700;cursor:pointer;border-bottom:3px solid transparent;transition:all .2s;letter-spacing:.3px}
 .tab-btn.active{color:#fff;border-bottom-color:#64b5f6;background:rgba(255,255,255,.06)}
-
-/* ── 페이지 ── */
 .page{display:none}
 .page.active{display:block;animation:fadeIn .25s ease}
 @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
-
-/* ── 대장 래퍼 ── */
 .dj-wrap{padding:12px}
-.doc-title{
-  background:linear-gradient(135deg,var(--blue-dark),var(--blue-mid));
-  color:#fff;text-align:center;padding:15px;
-  font-size:17px;font-weight:900;letter-spacing:5px;
-  border-radius:12px 12px 0 0;
-  box-shadow:inset 0 -2px 0 rgba(0,0,0,.15)
-}
-
-.dj-table{
-  width:100%;border-collapse:collapse;
-  background:var(--white);
-  border:2px solid var(--blue-dark);
-  border-top:none;border-radius:0 0 12px 12px;
-  overflow:hidden;table-layout:fixed;
-  box-shadow:var(--shadow-lg)
-}
+.doc-title{background:linear-gradient(135deg,var(--blue-dark),var(--blue-mid));color:#fff;text-align:center;padding:15px;font-size:17px;font-weight:900;letter-spacing:5px;border-radius:12px 12px 0 0;box-shadow:inset 0 -2px 0 rgba(0,0,0,.15)}
+.dj-table{width:100%;border-collapse:collapse;background:var(--white);border:2px solid var(--blue-dark);border-top:none;border-radius:0 0 12px 12px;overflow:hidden;table-layout:fixed;box-shadow:var(--shadow-lg)}
 .dj-table td{border:1px solid #cdd8e8;padding:0;vertical-align:middle;font-size:12px;overflow:hidden}
-
-/* 라벨 셀 */
-.lb{
-  background:linear-gradient(135deg,#dde8f5,#c8daf5);
-  color:var(--blue-dark);font-weight:700;text-align:center;
-  padding:9px 3px;font-size:11px;white-space:nowrap
-}
-.lb-sec{
-  background:linear-gradient(90deg,var(--blue-dark),var(--blue-mid));
-  color:#fff;font-weight:700;text-align:left;
-  padding:8px 12px;font-size:11px;letter-spacing:2px
-}
+.lb{background:linear-gradient(135deg,#dde8f5,#c8daf5);color:var(--blue-dark);font-weight:700;text-align:center;padding:9px 3px;font-size:11px;white-space:nowrap}
+.lb-sec{background:linear-gradient(90deg,var(--blue-dark),var(--blue-mid));color:#fff;font-weight:700;text-align:left;padding:8px 12px;font-size:11px;letter-spacing:2px}
 .lb-sec::before{content:'▸ ';opacity:.7}
-.lb-vert{
-  background:linear-gradient(180deg,#dde8f5,#c8daf5);
-  color:var(--blue-dark);font-weight:900;font-size:11px;text-align:center;padding:6px 0
-}
+.lb-vert{background:linear-gradient(180deg,#dde8f5,#c8daf5);color:var(--blue-dark);font-weight:900;font-size:11px;text-align:center;padding:6px 0}
 .lb-vert span{display:inline-block;writing-mode:vertical-rl;letter-spacing:3px}
-
-/* 입력 셀 */
 .inp{padding:0}
-.inp input,.inp select,.inp textarea{
-  width:100%;border:none;outline:none;
-  font-family:'Noto Sans KR',sans-serif;
-  font-size:12px;color:var(--text);background:var(--cell);
-  padding:9px 6px;-webkit-appearance:none;display:block;
-  transition:background .15s,box-shadow .15s
-}
-.inp input:focus,.inp select:focus,.inp textarea:focus{
-  background:#fffde7;
-  box-shadow:inset 0 0 0 2px #ffc107
-}
+.inp input,.inp select,.inp textarea{width:100%;border:none;outline:none;font-family:'Noto Sans KR',sans-serif;font-size:12px;color:var(--text);background:var(--cell);padding:9px 6px;-webkit-appearance:none;display:block;transition:background .15s,box-shadow .15s}
+.inp input:focus,.inp select:focus,.inp textarea:focus{background:#fffde7;box-shadow:inset 0 0 0 2px #ffc107}
 .inp textarea{resize:none;width:100%}
-.inp select option{font-size:14px}
-.inp select option:disabled{color:#bbb}
-
-/* 직접입력 드롭다운 */
 .dw{display:none;border-top:1px dashed #ffc107}
 .dw input{background:#fffde7!important;padding:7px 6px!important}
 .dw.on{display:block}
-
-/* 개폐여부 */
 .oc-wrap{display:flex;height:100%}
-.oc-btn{
-  flex:1;border:none;padding:10px 2px;
-  font-family:'Noto Sans KR',sans-serif;font-size:11px;font-weight:700;
-  cursor:pointer;background:var(--cell);color:var(--muted);
-  transition:all .2s
-}
+.oc-btn{flex:1;border:none;padding:10px 2px;font-family:'Noto Sans KR',sans-serif;font-size:11px;font-weight:700;cursor:pointer;background:var(--cell);color:var(--muted);transition:all .2s}
 .oc-btn:first-child{border-right:1px solid #cdd8e8}
 .oc-btn.open.on{background:#e8f5e9;color:#2e7d32}
 .oc-btn.close.on{background:#ffebee;color:#c62828}
 .oc-btn.oc-possible.on{background:#e8f5e9;color:#2e7d32}
 .oc-btn.oc-impossible.on{background:#ffebee;color:#c62828}
-
-/* GPS */
 .gps-row{display:flex;align-items:center;gap:6px;padding:7px 6px;position:relative;z-index:2}
 .gps-dot{width:9px;height:9px;border-radius:50%;background:var(--bdark);flex-shrink:0;transition:background .3s}
 .gps-dot.on{background:var(--green);animation:pulse 1.5s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 .gps-val{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--muted);flex:1;word-break:break-all}
 .gps-val.on{color:var(--green)}
-.gps-btn{
-  background:var(--blue-pale);border:1px solid var(--blue);color:var(--blue);
-  border-radius:7px;padding:7px 10px;font-size:11px;font-weight:700;
-  cursor:pointer;font-family:'Noto Sans KR',sans-serif;white-space:nowrap;
-  transition:all .15s;position:relative;z-index:3;
-  -webkit-tap-highlight-color:rgba(30,95,173,.15)
-}
+.gps-btn{background:var(--blue-pale);border:1px solid var(--blue);color:var(--blue);border-radius:7px;padding:7px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:'Noto Sans KR',sans-serif;white-space:nowrap;transition:all .15s;position:relative;z-index:3}
 .gps-btn:disabled{opacity:.5;cursor:not-allowed}
-.gps-btn:active:not(:disabled){background:var(--blue-light)}
-
-/* GPS 권한 안내 배너 */
-.gps-guide{
-  display:none;background:#e8f4ff;border:1px solid #90caf9;
-  border-radius:8px;padding:10px 14px;margin:0 12px 8px;
-  font-size:12px;color:var(--blue-dark);
-  align-items:flex-start;gap:8px;line-height:1.6
-}
+.gps-guide{display:none;background:#e8f4ff;border:1px solid #90caf9;border-radius:8px;padding:10px 14px;margin:0 12px 8px;font-size:12px;color:var(--blue-dark);align-items:flex-start;gap:8px;line-height:1.6}
 .gps-guide.show{display:flex}
-.gps-guide-ico{font-size:18px;flex-shrink:0}
-
-/* 갤러리 권한 안내 배너 */
-.gallery-guide{
-  display:none;background:#fce4ec;border:1px solid #f48fb1;
-  border-radius:8px;padding:10px 14px;margin:0 12px 8px;
-  font-size:12px;color:#880e4f;
-  align-items:flex-start;gap:8px;line-height:1.6
-}
+.gallery-guide{display:none;background:#fce4ec;border:1px solid #f48fb1;border-radius:8px;padding:10px 14px;margin:0 12px 8px;font-size:12px;color:#880e4f;align-items:flex-start;gap:8px;line-height:1.6}
 .gallery-guide.show{display:flex}
-.gallery-guide-ico{font-size:18px;flex-shrink:0}
-.gallery-guide-close{
-  margin-left:auto;background:none;border:none;
-  font-size:16px;cursor:pointer;color:#880e4f;opacity:.6;
-  padding:0 2px;line-height:1;align-self:flex-start;flex-shrink:0
-}
-.gallery-guide-close:active{opacity:1}
-
-/* 사진 */
-.photo-title{
-  background:linear-gradient(135deg,#dde8f5,#c8daf5);
-  color:var(--blue-dark);font-weight:700;text-align:center;
-  padding:8px 2px;font-size:11px;border-bottom:1px solid #cdd8e8
-}
-.photo-cell{
-  position:relative;background:var(--cell);min-height:120px;
-  display:flex;flex-direction:column;align-items:center;justify-content:center;
-  gap:4px;overflow:hidden;transition:background .15s
-}
+.gallery-guide-close{margin-left:auto;background:none;border:none;font-size:16px;cursor:pointer;color:#880e4f;opacity:.6;padding:0 2px;line-height:1;align-self:flex-start;flex-shrink:0}
+.photo-title{background:linear-gradient(135deg,#dde8f5,#c8daf5);color:var(--blue-dark);font-weight:700;text-align:center;padding:8px 2px;font-size:11px;border-bottom:1px solid #cdd8e8}
+.photo-cell{position:relative;background:var(--cell);min-height:120px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;overflow:hidden;transition:background .15s}
 .photo-cell input[type=file]{display:none}
 .photo-cell img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:1}
 .ph-ph{text-align:center;color:var(--muted);position:relative;z-index:2;pointer-events:auto}
 .ph-ph .ic{font-size:24px}
-
-/* 내부작업 전용 셀 (사진 업로드 없음) */
-.photo-cell-internal{
-  position:relative;background:#f5f7fa;min-height:120px;
-  display:flex;flex-direction:column;align-items:center;justify-content:center;
-  gap:6px;color:var(--muted);font-size:11px;text-align:center;padding:12px
-}
+.photo-cell-internal{position:relative;background:#f5f7fa;min-height:120px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:var(--muted);font-size:11px;text-align:center;padding:12px}
 .photo-cell-internal .ic{font-size:28px;opacity:.4}
 .photo-cell-internal .lbl{font-weight:700;font-size:10px;color:var(--bdark);letter-spacing:.5px}
 .photo-cell-internal .sub{font-size:9px;color:var(--muted);line-height:1.5}
-
 .photo-size{position:absolute;bottom:4px;left:4px;z-index:5;background:rgba(0,0,0,.55);border-radius:4px;padding:2px 5px;font-size:9px;color:#fff;font-family:'JetBrains Mono',monospace;display:none}
 .photo-cell.hp .photo-size{display:block}
 .photo-size.warn{background:rgba(198,40,40,.8)}
-.ph-del{
-  position:absolute;top:4px;right:4px;z-index:6;
-  background:rgba(198,40,40,.88);border:none;border-radius:50%;
-  width:22px;height:22px;color:#fff;font-size:11px;
-  cursor:pointer;display:none;align-items:center;justify-content:center;
-  box-shadow:0 1px 4px rgba(0,0,0,.3)
-}
+.ph-del{position:absolute;top:4px;right:4px;z-index:6;background:rgba(198,40,40,.88);border:none;border-radius:50%;width:22px;height:22px;color:#fff;font-size:11px;cursor:pointer;display:none;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(0,0,0,.3)}
 .photo-cell.hp .ph-del{display:flex}
 .photo-cell.hp .ph-ph{display:none}
 
-/* 사진 선택 버튼 */
+/* 사진 업로드 진행 표시 */
+.photo-uploading{position:absolute;inset:0;background:rgba(13,49,112,.6);z-index:7;display:none;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:#fff;font-size:11px;font-weight:700}
+.photo-uploading.on{display:flex}
+.upload-spinner{width:24px;height:24px;border:3px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
 .ph-btns{display:flex;gap:6px;margin-top:8px;justify-content:center}
-.ph-choice{
-  border:1px solid var(--border);border-radius:8px;
-  background:#fff;color:var(--blue-dark);
-  font-family:'Noto Sans KR',sans-serif;font-size:10px;font-weight:700;
-  padding:6px 10px;cursor:pointer;
-  transition:background .15s,border-color .15s;
-  -webkit-tap-highlight-color:rgba(30,95,173,.15)
-}
+.ph-choice{border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--blue-dark);font-family:'Noto Sans KR',sans-serif;font-size:10px;font-weight:700;padding:6px 10px;cursor:pointer;transition:background .15s,border-color .15s}
 .ph-choice:active{background:var(--blue-light);border-color:var(--blue)}
-
-.storage-warn{
-  display:none;background:#fff3e0;border:1px solid #ffb300;
-  border-radius:8px;padding:10px 14px;margin:0 12px 8px;
-  font-size:12px;color:var(--amber);font-weight:700;
-  align-items:center;gap:8px
-}
+.storage-warn{display:none;background:#fff3e0;border:1px solid #ffb300;border-radius:8px;padding:10px 14px;margin:0 12px 8px;font-size:12px;color:var(--amber);font-weight:700;align-items:center;gap:8px}
 .storage-warn.show{display:flex}
-
-/* ── 밸브실 현황 — 모바일 글자 짤림 방지 ── */
-/* 밸브실크기 입력행 */
 .vroom-row{display:flex;align-items:center;gap:0;flex-wrap:nowrap;overflow:hidden}
 .vroom-x{padding:0 3px;font-weight:900;color:var(--bdark);font-size:12px;flex-shrink:0}
-.vroom-inp{
-  flex:1;min-width:0;border:none;outline:none;
-  font-family:'Noto Sans KR',sans-serif;
-  font-size:11px;color:var(--text);background:var(--cell);
-  padding:9px 3px;text-align:center;
-  transition:background .15s,box-shadow .15s
-}
+.vroom-inp{flex:1;min-width:0;border:none;outline:none;font-family:'Noto Sans KR',sans-serif;font-size:11px;color:var(--text);background:var(--cell);padding:9px 3px;text-align:center;transition:background .15s,box-shadow .15s}
 .vroom-inp:focus{background:#fffde7;box-shadow:inset 0 0 0 2px #ffc107}
 .vroom-unit{padding:0 4px;font-size:10px;color:var(--muted);font-weight:700;flex-shrink:0}
-
-/* 밸브실 현황 라벨 셀 — 글자 짤림 방지 */
-.lb-vroom{
-  background:linear-gradient(135deg,#dde8f5,#c8daf5);
-  color:var(--blue-dark);font-weight:700;text-align:center;
-  padding:9px 2px;font-size:10px;white-space:normal;
-  word-break:keep-all;line-height:1.3
-}
-
-
-/* 밸브현황 비활성화 */
-.valve-row.disabled td,
-#valve-section-header.disabled td,
-#valve-vert.disabled {
-  opacity: 0.35;
-  pointer-events: none;
-  user-select: none;
-}
-.valve-section-disabled-overlay {
-  display: none;
-}
-
-/* 밸브실현황 비활성화 (비고칸 제외) */
-.vroom-tr.disabled td,
-.vroom-row-manhole.disabled td:not(#vroom-remark-lb):not(#vroom-remark-inp),
-#vroom-section-header.disabled td,
-#vroom-vert.disabled {
-  opacity: 0.35;
-  pointer-events: none;
-  user-select: none;
-}
-/* 비활성화된 select */
+.lb-vroom{background:linear-gradient(135deg,#dde8f5,#c8daf5);color:var(--blue-dark);font-weight:700;text-align:center;padding:9px 2px;font-size:10px;white-space:normal;word-break:keep-all;line-height:1.3}
+.valve-row.disabled td,#valve-section-header.disabled td,#valve-vert.disabled{opacity:.35;pointer-events:none;user-select:none}
+.vroom-tr.disabled td,.vroom-row-manhole.disabled td:not(#vroom-remark-lb):not(#vroom-remark-inp),#vroom-section-header.disabled td,#vroom-vert.disabled{opacity:.35;pointer-events:none;user-select:none}
 .inp select:disabled{background:#f0f0f0;color:#aaa;cursor:not-allowed}
-.inp select.disabled-overlay{opacity:.45;pointer-events:none}
 .manhole-disabled-wrap{position:relative}
-.manhole-disabled-badge{
-  display:none;
-  position:absolute;inset:0;
-  background:rgba(240,240,240,.85);
-  border-radius:0;
-  align-items:center;justify-content:center;
-  font-size:10px;color:var(--muted);font-weight:700;
-  z-index:5;pointer-events:none
-}
+.manhole-disabled-badge{display:none;position:absolute;inset:0;background:rgba(240,240,240,.85);align-items:center;justify-content:center;font-size:10px;color:var(--muted);font-weight:700;z-index:5;pointer-events:none}
 .manhole-disabled-badge.on{display:flex}
-
-/* 저장버튼 */
 .save-wrap{padding:12px}
-.save-btn{
-  width:100%;padding:16px;
-  background:linear-gradient(135deg,var(--blue-dark),var(--blue-mid));
-  border:none;border-radius:12px;color:#fff;
-  font-family:'Noto Sans KR',sans-serif;font-size:15px;font-weight:900;
-  cursor:pointer;letter-spacing:1px;
-  box-shadow:0 4px 16px rgba(13,49,112,.3);
-  transition:opacity .15s,transform .1s
-}
+.save-btn{width:100%;padding:16px;background:linear-gradient(135deg,var(--blue-dark),var(--blue-mid));border:none;border-radius:12px;color:#fff;font-family:'Noto Sans KR',sans-serif;font-size:15px;font-weight:900;cursor:pointer;letter-spacing:1px;box-shadow:0 4px 16px rgba(13,49,112,.3);transition:opacity .15s,transform .1s}
 .save-btn:active{opacity:.85;transform:scale(.99)}
-
-/* ── 목록 ── */
+.save-btn:disabled{opacity:.6;cursor:not-allowed}
 .list-pg{padding:12px}
-.list-bar{display:flex;gap:8px;margin-bottom:10px}
-.list-bar select{
-  flex:1;padding:10px 12px;background:#fff;
-  border:1px solid var(--bdark);border-radius:10px;
-  font-family:'Noto Sans KR',sans-serif;font-size:13px;
-  outline:none;-webkit-appearance:none;
-  box-shadow:var(--shadow)
-}
-.exp-btn{
-  background:linear-gradient(135deg,var(--blue-dark),var(--blue-mid));
-  border:none;color:#fff;border-radius:10px;
-  padding:10px 14px;font-family:'Noto Sans KR',sans-serif;
-  font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;
-  box-shadow:var(--shadow)
-}
-.srch{
-  width:100%;padding:11px 14px;background:#fff;
-  border:1px solid var(--bdark);border-radius:10px;
-  font-family:'Noto Sans KR',sans-serif;font-size:13px;
-  outline:none;margin-bottom:12px;
-  box-shadow:var(--shadow)
-}
+.list-bar{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+.list-bar select{flex:1;min-width:100px;padding:10px 12px;background:#fff;border:1px solid var(--bdark);border-radius:10px;font-family:'Noto Sans KR',sans-serif;font-size:13px;outline:none;-webkit-appearance:none;box-shadow:var(--shadow)}
+.exp-btn{background:linear-gradient(135deg,var(--blue-dark),var(--blue-mid));border:none;color:#fff;border-radius:10px;padding:10px 14px;font-family:'Noto Sans KR',sans-serif;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;box-shadow:var(--shadow)}
+.srch{width:100%;padding:11px 14px;background:#fff;border:1px solid var(--bdark);border-radius:10px;font-family:'Noto Sans KR',sans-serif;font-size:13px;outline:none;margin-bottom:12px;box-shadow:var(--shadow)}
 .srch:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(30,95,173,.12)}
 .list-stats{display:flex;gap:8px;margin-bottom:12px}
-.stat-chip{
-  flex:1;background:#fff;border:1px solid var(--border);border-radius:10px;
-  padding:9px 10px;text-align:center;box-shadow:var(--shadow)
-}
+.stat-chip{flex:1;background:#fff;border:1px solid var(--border);border-radius:10px;padding:9px 10px;text-align:center;box-shadow:var(--shadow)}
 .stat-num{font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:700;color:var(--blue-dark)}
 .stat-lbl{font-size:10px;color:var(--muted);margin-top:2px}
-.r-card{
-  background:#fff;border:1px solid #dde4ef;border-radius:12px;
-  margin-bottom:10px;overflow:hidden;cursor:pointer;
-  box-shadow:var(--shadow);transition:transform .15s,box-shadow .15s
-}
+.r-card{background:#fff;border:1px solid #dde4ef;border-radius:12px;margin-bottom:10px;overflow:hidden;cursor:pointer;box-shadow:var(--shadow);transition:transform .15s,box-shadow .15s}
 .r-card:active{transform:scale(.99);box-shadow:0 0 0 3px rgba(30,95,173,.15)}
-.r-head{
-  background:linear-gradient(135deg,var(--blue-dark),var(--blue-mid));
-  color:#fff;padding:11px 14px;display:flex;
-  justify-content:space-between;align-items:center;gap:8px
-}
+.r-head{background:linear-gradient(135deg,var(--blue-dark),var(--blue-mid));color:#fff;padding:11px 14px;display:flex;justify-content:space-between;align-items:center;gap:8px}
 .r-seq{font-family:'JetBrains Mono',monospace;font-size:12px;background:rgba(255,255,255,.15);padding:2px 8px;border-radius:5px;white-space:nowrap}
 .r-ttl{font-size:14px;font-weight:700;flex:1}
 .r-body{padding:10px 14px}
@@ -443,17 +333,12 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 .r-photo{width:56px;height:56px;border-radius:7px;object-fit:cover;border:1px solid var(--border)}
 .no-rec{text-align:center;padding:60px 20px;color:var(--muted)}
 .no-rec .ic{font-size:48px;margin-bottom:12px}
-
-/* ── 지도 탭 ── */
 .map-pg{padding:12px}
 .map-container{background:#fff;border-radius:12px;overflow:hidden;box-shadow:var(--shadow-lg);margin-bottom:12px}
-#gpsMap{width:100%;height:380px;border:none}
+.map-empty{height:200px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--muted);font-size:13px;background:#f7f9fc}
+.map-empty .ic{font-size:40px}
 .map-legend{background:#fff;border-radius:10px;padding:12px 14px;box-shadow:var(--shadow);border:1px solid var(--border)}
 .map-legend h4{font-size:12px;font-weight:700;color:var(--blue-dark);margin-bottom:8px}
-.map-empty{height:200px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--muted);font-size:13px;background:#f7f9fc;}
-.map-empty .ic{font-size:40px}
-
-/* ── 모달 ── */
 .m-ov{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200;display:none;align-items:flex-end}
 .m-ov.on{display:flex;animation:fadeIn .2s}
 .m-sh{background:#fff;width:100%;border-radius:20px 20px 0 0;max-height:92vh;overflow-y:auto;animation:slideUp .3s ease}
@@ -475,28 +360,13 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 .d-photo-lb{font-size:10px;color:var(--muted);text-align:center;margin-top:3px;font-weight:600}
 .m-actions{display:flex;gap:8px;margin-top:16px}
 .m-del{flex:1;padding:13px;background:#ffebee;border:1px solid var(--red);color:var(--red);border-radius:10px;font-family:'Noto Sans KR',sans-serif;font-size:13px;font-weight:700;cursor:pointer}
-
-/* ── 토스트 ── */
-.toast{
-  position:fixed;bottom:24px;left:50%;
-  transform:translateX(-50%) translateY(70px);
-  background:rgba(13,49,112,.95);color:#fff;
-  padding:12px 24px;border-radius:50px;font-size:13px;font-weight:700;
-  z-index:999;transition:transform .3s cubic-bezier(.34,1.56,.64,1);
-  white-space:nowrap;box-shadow:0 6px 24px rgba(0,0,0,.25);
-  backdrop-filter:blur(8px)
-}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(70px);background:rgba(13,49,112,.95);color:#fff;padding:12px 24px;border-radius:50px;font-size:13px;font-weight:700;z-index:999;transition:transform .3s cubic-bezier(.34,1.56,.64,1);white-space:nowrap;box-shadow:0 6px 24px rgba(0,0,0,.25);backdrop-filter:blur(8px)}
 .toast.on{transform:translateX(-50%) translateY(0)}
-
-@media(min-width:480px){
-  .dj-wrap{padding:16px}
-  .list-pg,.map-pg{padding:16px}
-}
+@media(min-width:480px){.dj-wrap,.list-pg,.map-pg{padding:16px}}
 </style>
 </head>
 <body>
 
-<!-- 헤더 -->
 <div class="app-header">
   <div class="header-top">
     <div class="header-left">
@@ -507,8 +377,8 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
       </div>
     </div>
     <div class="header-right">
-      <span class="ver-badge">v1.0</span>
-      <span id="fbStatus" style="font-size:10px;padding:3px 8px;border-radius:10px;background:rgba(255,255,255,.1);color:#90caf9;margin-right:2px">🔄</span>
+      <span class="ver-badge">v1.1</span>
+      <span id="fbStatus" title="Firebase 연결 상태" style="font-size:13px;padding:3px 8px;border-radius:10px;background:rgba(255,255,255,.1);color:#90caf9;margin-right:2px">🔄</span>
       <span class="header-badge" id="recordCount">0건</span>
     </div>
   </div>
@@ -519,61 +389,41 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
   </div>
 </div>
 
-<!-- GPS 권한 안내 배너 -->
 <div class="gps-guide" id="gpsGuide">
-  <div class="gps-guide-ico">📍</div>
-  <div id="gpsGuideMsg">위치 권한이 필요합니다. 브라우저 주소창 옆 🔒 아이콘 → 위치 → 허용 후 다시 눌러주세요.</div>
+  <div style="font-size:18px;flex-shrink:0">📍</div>
+  <div id="gpsGuideMsg">위치 권한이 필요합니다.</div>
 </div>
-
-<!-- 갤러리 권한 안내 배너 -->
 <div class="gallery-guide" id="galleryGuide">
-  <div class="gallery-guide-ico">🖼️</div>
+  <div style="font-size:18px;flex-shrink:0">🖼️</div>
   <div id="galleryGuideMsg"></div>
   <button class="gallery-guide-close" onclick="document.getElementById('galleryGuide').classList.remove('show')">✕</button>
 </div>
+<div class="storage-warn" id="storageWarn">⚠️ <span id="storageWarnMsg"></span></div>
 
-<!-- 사진 용량 경고 -->
-<div class="storage-warn" id="storageWarn">⚠️ <span id="storageWarnMsg">사진 용량이 크면 저장이 실패할 수 있어요.</span></div>
-
-<!-- ===== 대장 입력 ===== -->
+<!-- 대장 입력 -->
 <div class="page active" id="page-form">
 <div class="dj-wrap">
 <div class="doc-title">밸 브 류  관 리 대 장</div>
-
 <table class="dj-table">
 <colgroup>
-  <col style="width:6%">
-  <col style="width:13%">
-  <col style="width:19%">
-  <col style="width:13%">
-  <col style="width:24%">
-  <col style="width:25%">
+  <col style="width:6%"><col style="width:13%"><col style="width:19%">
+  <col style="width:13%"><col style="width:24%"><col style="width:25%">
 </colgroup>
-
-<!-- 조사일자 -->
 <tr>
   <td class="lb" colspan="2">조사일자</td>
   <td class="inp" colspan="4"><input type="date" id="f-date"></td>
 </tr>
-
-<!-- ── 기본현황 ── -->
 <tr>
   <td class="lb-vert" rowspan="5"><span>기본현황</span></td>
   <td class="lb">조사연번</td>
-  <td class="inp">
-    <input type="number" id="f-seqno" placeholder="연번" min="1" style="font-weight:700;color:var(--blue-dark)">
-  </td>
+  <td class="inp"><input type="number" id="f-seqno" placeholder="연번" min="1" style="font-weight:700;color:var(--blue-dark)"></td>
   <td class="lb">관리번호</td>
   <td class="inp" colspan="2"><input type="text" id="f-mgmtno" placeholder="JS01-000"></td>
 </tr>
-
 <tr>
   <td class="lb">주소</td>
-  <td class="inp" colspan="4">
-    <input type="text" id="f-addr" placeholder="직접 입력하거나 GPS로 자동입력">
-  </td>
+  <td class="inp" colspan="4"><input type="text" id="f-addr" placeholder="직접 입력하거나 GPS로 자동입력"></td>
 </tr>
-
 <tr>
   <td class="lb">대블록</td>
   <td class="inp"><input type="text" id="f-bigblock" placeholder="북부"></td>
@@ -591,8 +441,6 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
     </div>
   </td>
 </tr>
-
-<!-- GPS위치 -->
 <tr>
   <td class="lb">GPS</td>
   <td class="inp" colspan="5">
@@ -603,100 +451,72 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
     </div>
   </td>
 </tr>
-
-<!-- ── 밸브 현황 헤더 ── -->
 <tr id="valve-section-header"><td class="lb-sec" colspan="6">밸브 현황</td></tr>
-
-<!-- 밸브종류 + 형식 -->
 <tr class="valve-row">
   <td class="lb-vert" rowspan="6" id="valve-vert"><span>밸브현황</span></td>
   <td class="lb">밸브종류</td>
   <td class="inp">
     <select id="f-vtype" onchange="onVtypeChange()">
       <option value="">선택</option>
-      <option>제수밸브</option>
-      <option>소화전</option>
-      <option>공기밸브</option>
-      <option>감압밸브</option>
-      <option>역지밸브</option>
-      <option>이토밸브</option>
-      <option>기타</option>
+      <option>제수밸브</option><option>소화전</option><option>공기밸브</option>
+      <option>감압밸브</option><option>역지밸브</option><option>이토밸브</option><option>기타</option>
     </select>
   </td>
   <td class="lb">형식</td>
   <td class="inp" colspan="2">
-    <select id="f-vform" onchange="chkD(this,'dw-vform')">
-      <option value="">선택</option>
-    </select>
+    <select id="f-vform" onchange="chkD(this,'dw-vform')"><option value="">선택</option></select>
     <div class="dw" id="dw-vform"><input type="text" placeholder="직접 입력" id="dt-vform"></div>
   </td>
 </tr>
-
-<!-- 구동방법 + 제작회사 -->
 <tr class="valve-row">
   <td class="lb">구동방법</td>
   <td class="inp">
     <select id="f-drive">
-      <option value="">선택</option>
-      <option>수동</option><option>전동</option><option>공압</option>
+      <option value="">선택</option><option>수동</option><option>전동</option><option>공압</option>
     </select>
   </td>
   <td class="lb">제작회사</td>
   <td class="inp" colspan="2">
     <select id="f-maker" onchange="chkD(this,'dw-maker')">
-      <option value="">선택</option>
-      <option value="__d__">직접입력...</option>
+      <option value="">선택</option><option value="__d__">직접입력...</option>
     </select>
     <div class="dw" id="dw-maker"><input type="text" placeholder="직접 입력" id="dt-maker"></div>
   </td>
 </tr>
-
-<!-- 구경 + 재질 -->
 <tr class="valve-row">
   <td class="lb">구경(mm)</td>
   <td class="inp">
     <select id="f-dia" onchange="chkD(this,'dw-dia')">
       <option value="">선택</option>
       <option>50</option><option>80</option><option>100</option><option>150</option>
-      <option>200</option><option>250</option><option>300</option>
-      <option value="__d__">직접입력...</option>
+      <option>200</option><option>250</option><option>300</option><option value="__d__">직접입력...</option>
     </select>
     <div class="dw" id="dw-dia"><input type="text" placeholder="직접 입력" id="dt-dia"></div>
   </td>
   <td class="lb">재질</td>
   <td class="inp" colspan="2">
-    <!-- STS 제거: 주철만 남김 + 직접입력 -->
     <select id="f-material" onchange="chkD(this,'dw-material')">
-      <option value="">선택</option>
-      <option>주철</option>
-      <option value="__d__">직접입력...</option>
+      <option value="">선택</option><option>주철</option><option value="__d__">직접입력...</option>
     </select>
     <div class="dw" id="dw-material"><input type="text" placeholder="직접 입력" id="dt-material"></div>
   </td>
 </tr>
-
-<!-- 설치년도 + 회전방향 -->
 <tr class="valve-row">
   <td class="lb">설치년도</td>
   <td class="inp"><input type="text" id="f-installyear" placeholder="예: 2002"></td>
   <td class="lb">회전방향</td>
   <td class="inp" colspan="2">
     <select id="f-rotation">
-      <option value="">선택</option>
-      <option>좌개</option><option>우개</option>
+      <option value="">선택</option><option>좌개</option><option>우개</option>
     </select>
   </td>
 </tr>
-
-<!-- 총회전수 + 현회전수 -->
 <tr class="valve-row">
   <td class="lb">총회전수</td>
   <td class="inp"><input type="text" id="f-totalrot" placeholder="-"></td>
   <td class="lb">현회전수</td>
   <td class="inp" colspan="2"><input type="text" id="f-currot" placeholder="-"></td>
 </tr>
-
-<!-- 심도 + 개폐여부 -->
 <tr class="valve-row">
   <td class="lb">심도(m)</td>
   <td class="inp"><input type="text" id="f-depth" placeholder="0.7"></td>
@@ -708,13 +528,9 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
     </div>
   </td>
 </tr>
-
-<!-- ── 밸브실 현황 헤더 ── -->
 <tr id="vroom-section-header"><td class="lb-sec" colspan="6">밸브실 현황</td></tr>
-
 <tr class="vroom-tr">
   <td class="lb-vert" rowspan="3" id="vroom-vert"><span>밸브실</span></td>
-  <!-- 밸브실크기: 라벨 글자 줄바꿈 허용, 입력칸 overflow 방지 -->
   <td class="lb-vroom">밸브실<br>크기</td>
   <td class="inp" colspan="4" style="padding:0">
     <div class="vroom-row">
@@ -727,41 +543,29 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
     </div>
   </td>
 </tr>
-
-<!--
-  소형철개 / 보호통 순서로 변경 (요청사항)
-  소형철개 선택 시 → 맨홀철개 비활성화
--->
 <tr class="vroom-tr">
   <td class="lb-vroom">소형<br>철개</td>
   <td class="inp">
-    <select id="f-smcover" onchange="chkD(this,'dw-smcover'); onSmcoverChange()">
+    <select id="f-smcover" onchange="chkD(this,'dw-smcover');onSmcoverChange()">
       <option value="">선택</option>
-      <option>185</option><option>265</option><option>318</option>
-      <option value="__d__">직접입력...</option>
+      <option>185</option><option>265</option><option>318</option><option value="__d__">직접입력...</option>
     </select>
     <div class="dw" id="dw-smcover"><input type="text" placeholder="직접 입력" id="dt-smcover"></div>
   </td>
   <td class="lb-vroom">보호통</td>
   <td class="inp" colspan="2">
     <select id="f-protbox" onchange="chkD(this,'dw-protbox')">
-      <option value="">선택</option>
-      <option>150</option><option>300</option>
-      <option value="__d__">직접입력...</option>
+      <option value="">선택</option><option>150</option><option>300</option><option value="__d__">직접입력...</option>
     </select>
     <div class="dw" id="dw-protbox"><input type="text" placeholder="직접 입력" id="dt-protbox"></div>
   </td>
 </tr>
-
-<!-- 맨홀철개 + 비고 — 같은 행 -->
 <tr class="vroom-row-manhole">
   <td class="lb-vroom">맨홀<br>철개</td>
   <td class="inp">
-    <div class="manhole-disabled-wrap" style="position:relative">
+    <div class="manhole-disabled-wrap">
       <select id="f-manhole" onchange="chkD(this,'dw-manhole')">
-        <option value="">선택</option>
-        <option>648</option>
-        <option value="__d__">직접입력...</option>
+        <option value="">선택</option><option>648</option><option value="__d__">직접입력...</option>
       </select>
       <div class="dw" id="dw-manhole"><input type="text" placeholder="직접 입력" id="dt-manhole"></div>
       <div class="manhole-disabled-badge" id="manholeDisabledBadge">🚫 소형철개 선택 시 미사용</div>
@@ -771,50 +575,38 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
   <td class="inp" colspan="2" id="vroom-remark-inp">
     <select id="f-vremark" onchange="chkD(this,'dw-vremark')">
       <option value="">선택</option>
-      <option>외부매몰</option>
-      <option>내부 수몰</option>
-      <option>내부 토몰</option>
-      <option>보호통 이탈</option>
-      <option>스핀들탈락</option>
-      <option value="__d__">직접입력...</option>
+      <option>외부매몰</option><option>내부 수몰</option><option>내부 토몰</option>
+      <option>보호통 이탈</option><option>스핀들탈락</option><option value="__d__">직접입력...</option>
     </select>
     <div class="dw" id="dw-vremark"><input type="text" placeholder="직접 입력" id="dt-vremark"></div>
   </td>
 </tr>
-
-<!-- 기타사항 -->
 <tr><td class="lb-sec" colspan="6">기타사항</td></tr>
 <tr>
   <td class="lb" colspan="2">기타사항</td>
   <td class="inp" colspan="4">
-    <textarea id="f-notes" rows="3" placeholder="현장 특이사항, 메모 등 자유롭게 입력..." style="padding:9px 6px;font-size:12px;line-height:1.6"></textarea>
+    <textarea id="f-notes" rows="3" placeholder="현장 특이사항, 메모 등..." style="padding:9px 6px;font-size:12px;line-height:1.6"></textarea>
   </td>
 </tr>
-
-<!-- 사진 -->
 <tr><td class="lb-sec" colspan="6">현장 사진</td></tr>
 <tr>
-  <!--
-    위치상세도 / 위치도 : 내부 작업 예정 → 업로드 UI 제거, 안내 표시
-  -->
   <td colspan="3" style="padding:0;border-right:1px solid #cdd8e8">
     <div class="photo-title">📷 위치상세도</div>
     <div class="photo-cell-internal">
-      <div class="ic">🗺️</div>
-      <div class="lbl">내부 작업 예정</div>
+      <div class="ic">🗺️</div><div class="lbl">내부 작업 예정</div>
       <div class="sub">별도 도면으로<br>관리됩니다</div>
     </div>
   </td>
   <td colspan="3" style="padding:0">
     <div class="photo-title">📷 위치도</div>
     <div class="photo-cell-internal">
-      <div class="ic">📍</div>
-      <div class="lbl">내부 작업 예정</div>
+      <div class="ic">📍</div><div class="lbl">내부 작업 예정</div>
       <div class="sub">별도 도면으로<br>관리됩니다</div>
     </div>
   </td>
 </tr>
 <tr>
+  <!-- 원경: 조사연번-3 -->
   <td colspan="3" style="padding:0;border-right:1px solid #cdd8e8">
     <div class="photo-title">📷 사진대지 (원경)</div>
     <div class="photo-cell" id="pc2">
@@ -830,8 +622,10 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
       <img id="pi2" src="" alt="">
       <div class="photo-size" id="ps2"></div>
       <button class="ph-del" onclick="delPhoto(event,2)">✕</button>
+      <div class="photo-uploading" id="pu2"><div class="upload-spinner"></div>업로드 중...</div>
     </div>
   </td>
+  <!-- 근경: 조사연번-4 -->
   <td colspan="3" style="padding:0">
     <div class="photo-title">📷 사진대지 (근경)</div>
     <div class="photo-cell" id="pc3">
@@ -847,16 +641,16 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
       <img id="pi3" src="" alt="">
       <div class="photo-size" id="ps3"></div>
       <button class="ph-del" onclick="delPhoto(event,3)">✕</button>
+      <div class="photo-uploading" id="pu3"><div class="upload-spinner"></div>업로드 중...</div>
     </div>
   </td>
 </tr>
-
 </table>
 </div>
-<div class="save-wrap"><button class="save-btn" onclick="saveRecord()">💾 관리대장 저장</button></div>
+<div class="save-wrap"><button class="save-btn" id="saveBtn" onclick="saveRecord()">💾 관리대장 저장</button></div>
 </div>
 
-<!-- ===== 목록 ===== -->
+<!-- 목록 -->
 <div class="page" id="page-list">
   <div class="list-pg">
     <div class="list-stats">
@@ -871,10 +665,10 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
         <option>제수밸브</option><option>소화전</option><option>공기밸브</option>
         <option>감압밸브</option><option>역지밸브</option><option>이토밸브</option><option>기타</option>
       </select>
-      <button class="exp-btn" onclick="exportExcelTemplate()" title="기존 조서 엑셀에 데이터 추가">📋 조서저장</button>
-      <button class="exp-btn" onclick="exportExcel()" title="새 엑셀 파일로 내보내기" style="background:linear-gradient(135deg,#2e7d32,#388e3c)">📊 새파일</button>
-      <button class="exp-btn" onclick="exportJSON()" title="데이터 백업 / PC 전송용" style="background:linear-gradient(135deg,#6a1b9a,#8e24aa)">💾 백업</button>
-      <button class="exp-btn" onclick="document.getElementById('importJSON').click()" title="백업 파일 불러오기" style="background:linear-gradient(135deg,#e65100,#f57c00)">📂 불러오기</button>
+      <button class="exp-btn" onclick="exportExcelTemplate()">📋 조서저장</button>
+      <button class="exp-btn" onclick="exportExcel()" style="background:linear-gradient(135deg,#2e7d32,#388e3c)">📊 새파일</button>
+      <button class="exp-btn" onclick="exportJSON()" style="background:linear-gradient(135deg,#6a1b9a,#8e24aa)">💾 백업</button>
+      <button class="exp-btn" onclick="document.getElementById('importJSON').click()" style="background:linear-gradient(135deg,#e65100,#f57c00)">📂 불러오기</button>
       <input type="file" id="importJSON" accept=".json" style="display:none" onchange="importJSON(event)">
     </div>
     <input class="srch" type="search" placeholder="🔍  관리번호, 주소, 연번 검색..." id="searchBox" oninput="renderList()">
@@ -882,7 +676,7 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
   </div>
 </div>
 
-<!-- ===== GPS 지도 ===== -->
+<!-- GPS 지도 -->
 <div class="page" id="page-map">
   <div class="map-pg">
     <div class="map-container">
@@ -911,379 +705,143 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
     <div class="m-body" id="mBody"></div>
   </div>
 </div>
-
 <div class="toast" id="toast"></div>
 
 <script>
-/* ═══════════════════════════════
-   상수
-═══════════════════════════════ */
 const MAKERS = {
   '소화전':['육송','대성'],
   '제수밸브':['삼진정밀','신흥정밀','대신기공','신진정공','한국정밀','동해밸브','우신밸브','에쎈테크'],
   '공기밸브':['신진정공'],'감압밸브':['신진정공'],'역지밸브':['신진정공'],
   '이토밸브':[],'기타':[],'':[]
 };
-
 const VFORM_OPTIONS = {
-  '제수밸브': ['S.V', 'G.V', 'B.V'],
-  '소화전':   ['지상식', '지하식'],
-  '공기밸브': ['단구', '쌍구', '급속'],
-  '감압밸브': [],
-  '역지밸브': [],
-  '이토밸브': [],
-  '기타':     [],
-  '':         ['지상식','지하식','단구','쌍구','급속','S.V','G.V','H.V']
+  '제수밸브':['S.V','G.V','B.V'],'소화전':['지상식','지하식'],
+  '공기밸브':['단구','쌍구','급속'],'감압밸브':[],'역지밸브':[],
+  '이토밸브':[],'기타':[],'':['지상식','지하식','단구','쌍구','급속','S.V','G.V','H.V']
 };
+const PHOTO_LIMIT_BYTES  = 10 * 1024 * 1024;  // 10MB 이상이면 경고
+const STORAGE_WARN_BYTES = 25 * 1024 * 1024;  // 25MB 넘으면 로컬 저장 위험 경고
 
-const PHOTO_LIMIT_BYTES = 800 * 1024;
-const STORAGE_WARN_BYTES = 4 * 1024 * 1024;
+let photos=[null,null,null,null], gpsData=null, selOCVal='', selValveStateVal='', records=[];
+Object.defineProperty(window,'_records',{ get(){return records;}, set(v){records=v;} });
 
-// photos[0],[1] = 위치상세도,위치도 (내부작업 → null 고정)
-// photos[2],[3] = 사진대지 원경/근경
-let photos = [null,null,null,null], gpsData = null, selOCVal = '', selValveStateVal = '', records = [];
-// Firebase 모듈에서 접근할 수 있도록 전역 미러링
-Object.defineProperty(window, '_records', {
-  get() { return records; },
-  set(v) { records = v; }
-});
-
-/* ═══════════════════════════════
-   초기화
-═══════════════════════════════ */
-function init() {
+/* ── 초기화 ── */
+function init(){
   document.getElementById('f-date').value = new Date().toISOString().split('T')[0];
-  loadRecords();
-  updateBadge();
-  updateSeqPreview();
-  updateVformOptions('');
-  document.getElementById('mOv').addEventListener('click', function(e) {
-    if (e.target === this) closeModal();
-  });
+  loadRecords(); updateBadge(); updateSeqPreview(); updateVformOptions('');
+  document.getElementById('mOv').addEventListener('click',e=>{ if(e.target===document.getElementById('mOv')) closeModal(); });
   document.getElementById('mCloseBtn').addEventListener('click', closeModal);
 }
 
-/* ═══════════════════════════════
-   자동 조사연번
-═══════════════════════════════ */
-function getNextSeqno() {
-  if (!records.length) return 1;
-  return Math.max(...records.map(r => parseInt(r.seqno) || 0)) + 1;
+function getNextSeqno(){
+  if(!records.length) return 1;
+  return Math.max(...records.map(r=>parseInt(r.seqno)||0))+1;
 }
-function updateSeqPreview() {
-  const el = document.getElementById('f-seqno');
-  if (!el.value) el.value = getNextSeqno();
+function updateSeqPreview(){
+  const el=document.getElementById('f-seqno');
+  if(!el.value) el.value=getNextSeqno();
 }
 
-/* ═══════════════════════════════
-   밸브종류 → 형식 옵션 & 제작회사
-═══════════════════════════════ */
-function onVtypeChange() {
-  const vt = document.getElementById('f-vtype').value;
-  updateVformOptions(vt);
-  updateMakerOptions(vt);
+function onVtypeChange(){ const vt=document.getElementById('f-vtype').value; updateVformOptions(vt); updateMakerOptions(vt); }
+function updateVformOptions(vt){
+  const sel=document.getElementById('f-vform'), dw=document.getElementById('dw-vform'), dt=document.getElementById('dt-vform');
+  const opts=VFORM_OPTIONS[vt]??VFORM_OPTIONS[''];
+  sel.innerHTML='<option value="">선택</option>';
+  opts.forEach(v=>{ const o=document.createElement('option'); o.value=v; o.textContent=v; sel.appendChild(o); });
+  const od=document.createElement('option'); od.value='__d__'; od.textContent='직접입력...'; sel.appendChild(od);
+  sel.value=''; dw.classList.remove('on'); dt.value='';
 }
-
-function updateVformOptions(vt) {
-  const sel = document.getElementById('f-vform');
-  const dw  = document.getElementById('dw-vform');
-  const dt  = document.getElementById('dt-vform');
-  const opts = VFORM_OPTIONS[vt] ?? VFORM_OPTIONS[''];
-
-  sel.innerHTML = '<option value="">선택</option>';
-  opts.forEach(v => {
-    const o = document.createElement('option');
-    o.value = v; o.textContent = v;
-    sel.appendChild(o);
-  });
-  const od = document.createElement('option');
-  od.value = '__d__'; od.textContent = '직접입력...';
-  sel.appendChild(od);
-
-  sel.value = '';
-  dw.classList.remove('on');
-  dt.value = '';
-}
-
-function updateMakerOptions(vt) {
-  const sel = document.getElementById('f-maker');
-  sel.innerHTML = '<option value="">선택</option>';
-  (MAKERS[vt] || []).forEach(m => {
-    const o = document.createElement('option');
-    o.value = m; o.textContent = m;
-    sel.appendChild(o);
-  });
-  const od = document.createElement('option');
-  od.value = '__d__'; od.textContent = '직접입력...';
-  sel.appendChild(od);
+function updateMakerOptions(vt){
+  const sel=document.getElementById('f-maker');
+  sel.innerHTML='<option value="">선택</option>';
+  (MAKERS[vt]||[]).forEach(m=>{ const o=document.createElement('option'); o.value=m; o.textContent=m; sel.appendChild(o); });
+  const od=document.createElement('option'); od.value='__d__'; od.textContent='직접입력...'; sel.appendChild(od);
   document.getElementById('dw-maker').classList.remove('on');
-  document.getElementById('dt-maker').value = '';
+  document.getElementById('dt-maker').value='';
 }
-
-function chkD(sel, wid) {
-  document.getElementById(wid).classList.toggle('on', sel.value === '__d__');
-  if (sel.value === '__d__') document.getElementById(wid).querySelector('input').focus();
+function chkD(sel,wid){ document.getElementById(wid).classList.toggle('on',sel.value==='__d__'); if(sel.value==='__d__') document.getElementById(wid).querySelector('input').focus(); }
+function gv(sid,dtid){ const s=document.getElementById(sid); return s.value==='__d__'?document.getElementById(dtid).value.trim():s.value; }
+function selOC(v){ selOCVal=selOCVal===v?'':v; document.getElementById('oc-open').classList.toggle('on',selOCVal==='OPEN'); document.getElementById('oc-close').classList.toggle('on',selOCVal==='CLOSE'); }
+function selValveState(v){
+  selValveStateVal=selValveStateVal===v?'':v;
+  document.getElementById('oc-possible').classList.toggle('on',selValveStateVal==='개폐가능');
+  document.getElementById('oc-impossible').classList.toggle('on',selValveStateVal==='개폐불가');
+  applyValveSectionDisabled(selValveStateVal==='개폐불가');
 }
-
-function gv(sid, dtid) {
-  const s = document.getElementById(sid);
-  return s.value === '__d__' ? document.getElementById(dtid).value.trim() : s.value;
-}
-
-function selOC(v) {
-  selOCVal = selOCVal === v ? '' : v;
-  document.getElementById('oc-open').classList.toggle('on', selOCVal === 'OPEN');
-  document.getElementById('oc-close').classList.toggle('on', selOCVal === 'CLOSE');
-}
-
-function selValveState(v) {
-  selValveStateVal = selValveStateVal === v ? '' : v;
-  document.getElementById('oc-possible').classList.toggle('on', selValveStateVal === '개폐가능');
-  document.getElementById('oc-impossible').classList.toggle('on', selValveStateVal === '개폐불가');
-  applyValveSectionDisabled(selValveStateVal === '개폐불가');
-}
-
-function applyValveSectionDisabled(disabled) {
-  // ── 밸브현황 비활성화 ──
-  const hdr = document.getElementById('valve-section-header');
-  if (hdr) hdr.classList.toggle('disabled', disabled);
-  const vert = document.getElementById('valve-vert');
-  if (vert) vert.classList.toggle('disabled', disabled);
-  document.querySelectorAll('.valve-row').forEach(tr => {
-    tr.classList.toggle('disabled', disabled);
-    tr.querySelectorAll('input, select, button').forEach(el => {
-      el.disabled = disabled;
-    });
-  });
-
-  // ── 밸브실현황 비활성화 (비고칸 제외) ──
-  const vroomHdr = document.getElementById('vroom-section-header');
-  if (vroomHdr) vroomHdr.classList.toggle('disabled', disabled);
-  const vroomVert = document.getElementById('vroom-vert');
-  if (vroomVert) vroomVert.classList.toggle('disabled', disabled);
-
-  // 밸브실크기, 소형철개·보호통 행 전체 비활성화
-  document.querySelectorAll('.vroom-tr').forEach(tr => {
-    tr.classList.toggle('disabled', disabled);
-    tr.querySelectorAll('input, select').forEach(el => {
-      el.disabled = disabled;
-    });
-  });
-
-  // 맨홀철개+비고 행: 맨홀철개만 비활성화, 비고칸은 유지
-  const manholeRow = document.querySelector('.vroom-row-manhole');
-  if (manholeRow) {
-    manholeRow.classList.toggle('disabled', disabled);
-    // 비고 셀 id 목록
-    const remarkIds = new Set(['vroom-remark-lb', 'vroom-remark-inp']);
-    manholeRow.querySelectorAll('td').forEach(td => {
-      if (!remarkIds.has(td.id)) {
-        // 맨홀철개 td 내 입력요소만 disabled
-        td.querySelectorAll('input, select').forEach(el => {
-          el.disabled = disabled;
-        });
-      }
-    });
+function applyValveSectionDisabled(disabled){
+  ['valve-section-header','valve-vert'].forEach(id=>{ const el=document.getElementById(id); if(el) el.classList.toggle('disabled',disabled); });
+  document.querySelectorAll('.valve-row').forEach(tr=>{ tr.classList.toggle('disabled',disabled); tr.querySelectorAll('input,select,button').forEach(el=>el.disabled=disabled); });
+  ['vroom-section-header','vroom-vert'].forEach(id=>{ const el=document.getElementById(id); if(el) el.classList.toggle('disabled',disabled); });
+  document.querySelectorAll('.vroom-tr').forEach(tr=>{ tr.classList.toggle('disabled',disabled); tr.querySelectorAll('input,select').forEach(el=>el.disabled=disabled); });
+  const mrow=document.querySelector('.vroom-row-manhole');
+  if(mrow){
+    mrow.classList.toggle('disabled',disabled);
+    const skip=new Set(['vroom-remark-lb','vroom-remark-inp']);
+    mrow.querySelectorAll('td').forEach(td=>{ if(!skip.has(td.id)) td.querySelectorAll('input,select').forEach(el=>el.disabled=disabled); });
   }
 }
-
-/* ═══════════════════════════════
-   소형철개 ↔ 맨홀철개 연동
-   소형철개 값이 있으면 맨홀철개 비활성화
-═══════════════════════════════ */
-function onSmcoverChange() {
-  const smVal = document.getElementById('f-smcover').value;
-  const hasSm = smVal !== '' && smVal !== '__d__'
-    ? true
-    : (smVal === '__d__' && document.getElementById('dt-smcover').value.trim() !== '');
-
-  const manholeSel = document.getElementById('f-manhole');
-  const badge      = document.getElementById('manholeDisabledBadge');
-  const dwManhole  = document.getElementById('dw-manhole');
-
-  if (smVal !== '' ) {
-    // 소형철개 선택됨 → 맨홀철개 비활성화
-    manholeSel.disabled = true;
-    manholeSel.value = '';
-    dwManhole.classList.remove('on');
-    document.getElementById('dt-manhole').value = '';
-    badge.classList.add('on');
-  } else {
-    // 소형철개 미선택 → 맨홀철개 활성화
-    manholeSel.disabled = false;
-    badge.classList.remove('on');
-  }
+function onSmcoverChange(){
+  const smVal=document.getElementById('f-smcover').value;
+  const sel=document.getElementById('f-manhole'), badge=document.getElementById('manholeDisabledBadge'), dw=document.getElementById('dw-manhole');
+  if(smVal!==''){sel.disabled=true;sel.value='';dw.classList.remove('on');document.getElementById('dt-manhole').value='';badge.classList.add('on');}
+  else{sel.disabled=false;badge.classList.remove('on');}
 }
 
-/* ═══════════════════════════════
-   GPS + 역지오코딩
-═══════════════════════════════ */
-function getGPS() {
-  const dot   = document.getElementById('gpsDot');
-  const val   = document.getElementById('gpsVal');
-  const btn   = document.getElementById('gpsBtn');
-  const guide = document.getElementById('gpsGuide');
-
-  if (!navigator.geolocation) {
-    showGuide('이 브라우저는 GPS를 지원하지 않아요.');
-    return;
-  }
-
-  guide.classList.remove('show');
-  dot.classList.add('on');
-  val.textContent = '수신 중...';
-  btn.textContent = '⏳ 수신 중...';
-  btn.disabled = true;
-
-  const doRequest = () => {
-    navigator.geolocation.getCurrentPosition(
-      async pos => {
-        const lat = pos.coords.latitude.toFixed(6);
-        const lng = pos.coords.longitude.toFixed(6);
-        gpsData = { lat, lng };
-        val.textContent = `${lat}, ${lng}`;
-        val.className = 'gps-val on';
-        btn.textContent = '🔄 다시받기';
-        btn.disabled = false;
-        guide.classList.remove('show');
-        await reverseGeocode(lat, lng);
-      },
-      err => {
-        dot.classList.remove('on');
-        val.textContent = '수신 실패';
-        btn.textContent = '📍 위치받기';
-        btn.disabled = false;
-        const GUIDE = {
-          1: '위치 권한이 거부됐어요.<br><br>📱 <b>iPhone/iPad</b><br>설정 앱 → 개인정보 보호 및 보안 → 위치 서비스 → Safari(또는 해당 브라우저) → "앱을 사용하는 동안" 선택<br><br>🤖 <b>Android</b><br>브라우저 주소창 왼쪽 🔒 또는 ⓘ 아이콘 탭 → 권한 → 위치 → 허용<br><br>설정 변경 후 이 페이지를 새로고침하고 다시 눌러주세요.',
-          2: 'GPS 신호를 찾지 못했어요.<br>실외로 이동하거나 Wi-Fi를 켜고 다시 시도해 주세요.',
-          3: '위치 수신 시간이 초과됐어요.<br>다시 한번 눌러주세요.'
-        };
-        showGuide(GUIDE[err.code] || `GPS 오류가 발생했어요: ${err.message}`);
-      },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-    );
-  };
-
-  if (navigator.permissions) {
-    navigator.permissions.query({ name: 'geolocation' }).then(result => {
-      if (result.state === 'denied') {
-        dot.classList.remove('on');
-        val.textContent = '권한 거부됨';
-        btn.textContent = '📍 위치받기';
-        btn.disabled = false;
-        showGuide('위치 권한이 이미 거부되어 있어요.<br><br>📱 <b>iPhone/iPad</b><br>설정 앱 → 개인정보 보호 및 보안 → 위치 서비스 → Safari → "앱을 사용하는 동안" 선택<br><br>🤖 <b>Android</b><br>브라우저 주소창 🔒 아이콘 탭 → 권한 → 위치 → 허용<br><br>설정 변경 후 페이지를 새로고침해 주세요.');
-      } else {
-        doRequest();
-      }
-    }).catch(() => doRequest());
-  } else {
-    doRequest();
-  }
+/* ── GPS ── */
+function getGPS(){
+  const dot=document.getElementById('gpsDot'),val=document.getElementById('gpsVal'),btn=document.getElementById('gpsBtn'),guide=document.getElementById('gpsGuide');
+  if(!navigator.geolocation){showGuide('이 브라우저는 GPS를 지원하지 않아요.');return;}
+  guide.classList.remove('show'); dot.classList.add('on'); val.textContent='수신 중...'; btn.textContent='⏳ 수신 중...'; btn.disabled=true;
+  const doReq=()=>{ navigator.geolocation.getCurrentPosition(async pos=>{
+    const lat=pos.coords.latitude.toFixed(6), lng=pos.coords.longitude.toFixed(6);
+    gpsData={lat,lng}; val.textContent=`${lat}, ${lng}`; val.className='gps-val on';
+    btn.textContent='🔄 다시받기'; btn.disabled=false; guide.classList.remove('show');
+    await reverseGeocode(lat,lng);
+  },err=>{
+    dot.classList.remove('on'); val.textContent='수신 실패'; btn.textContent='📍 위치받기'; btn.disabled=false;
+    const G={1:'위치 권한이 거부됐어요. 브라우저 설정에서 허용 후 새로고침해 주세요.',2:'GPS 신호를 찾지 못했어요. 실외로 이동 후 다시 시도해 주세요.',3:'위치 수신 시간이 초과됐어요. 다시 눌러주세요.'};
+    showGuide(G[err.code]||`GPS 오류: ${err.message}`);
+  },{enableHighAccuracy:true,timeout:15000,maximumAge:0}); };
+  if(navigator.permissions){ navigator.permissions.query({name:'geolocation'}).then(r=>{ if(r.state==='denied'){dot.classList.remove('on');val.textContent='권한 거부됨';btn.textContent='📍 위치받기';btn.disabled=false;showGuide('위치 권한이 거부되어 있어요. 설정에서 허용 후 새로고침해 주세요.');} else doReq(); }).catch(()=>doReq()); } else doReq();
 }
-
-function showGuide(msg) {
-  const guide = document.getElementById('gpsGuide');
-  const msgEl = document.getElementById('gpsGuideMsg');
-  msgEl.innerHTML = msg.replace(/\n/g, '<br>');
-  guide.classList.add('show');
-  guide.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-}
-
-async function reverseGeocode(lat, lng) {
-  try {
-    const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&accept-language=ko`;
-    const res  = await fetch(url, { headers: { 'Accept-Language': 'ko' } });
-    const data = await res.json();
-    if (data?.address) {
-      const a = data.address;
-      const parts = [
-        a.province || a.state || '',
-        a.city || a.county || a.town || '',
-        a.suburb || a.neighbourhood || a.quarter || '',
-        a.road || '',
-        a.house_number || ''
-      ].filter(Boolean);
-      const addr = parts.join(' ').trim() || data.display_name;
-      const addrEl = document.getElementById('f-addr');
-      if (!addrEl.value) addrEl.value = addr;
-      else addrEl.placeholder = addr;
-      gpsData.addr = addr;
-      showToast('📮 GPS 주소 자동입력 완료!');
-      return;
+function showGuide(msg){ const g=document.getElementById('gpsGuide'); document.getElementById('gpsGuideMsg').innerHTML=msg.replace(/\n/g,'<br>'); g.classList.add('show'); g.scrollIntoView({behavior:'smooth',block:'nearest'}); }
+async function reverseGeocode(lat,lng){
+  try{
+    const res=await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&accept-language=ko`,{headers:{'Accept-Language':'ko'}});
+    const data=await res.json();
+    if(data?.address){
+      const a=data.address;
+      const parts=[a.province||a.state||'',a.city||a.county||a.town||'',a.suburb||a.neighbourhood||a.quarter||'',a.road||'',a.house_number||''].filter(Boolean);
+      const addr=parts.join(' ').trim()||data.display_name;
+      const addrEl=document.getElementById('f-addr');
+      if(!addrEl.value) addrEl.value=addr; else addrEl.placeholder=addr;
+      gpsData.addr=addr; showToast('📮 GPS 주소 자동입력 완료!'); return;
     }
-  } catch(e) { console.warn('geocode fail', e); }
+  }catch(e){console.warn('geocode fail',e);}
   showToast('⚠️ 주소 변환 실패 — 좌표만 저장됩니다');
 }
 
-/* ═══════════════════════════════
-   갤러리 권한 안내
-═══════════════════════════════ */
-function showGalleryGuide(msg) {
-  const guide = document.getElementById('galleryGuide');
-  document.getElementById('galleryGuideMsg').innerHTML = msg;
-  guide.classList.add('show');
-  guide.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-}
-
-async function triggerGallery(e, inputId) {
-  e.preventDefault();
-  e.stopPropagation();
+/* ── 갤러리 ── */
+function showGalleryGuide(msg){ const g=document.getElementById('galleryGuide'); document.getElementById('galleryGuideMsg').innerHTML=msg; g.classList.add('show'); g.scrollIntoView({behavior:'smooth',block:'nearest'}); }
+async function triggerGallery(e,inputId){
+  e.preventDefault(); e.stopPropagation();
   document.getElementById('galleryGuide').classList.remove('show');
-  const inp = document.getElementById(inputId);
-  if (!inp) return;
-  inp.value = '';
-  let guided = false;
-
-  const onFocusBack = () => {
-    setTimeout(() => {
-      if (!guided && inp.value === '') {
-        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-        const isAndroid = /Android/.test(navigator.userAgent);
-        if (isIOS) {
-          showGalleryGuide(
-            '사진 접근이 차단됐을 수 있어요.<br><br>' +
-            '📱 <b>iPhone/iPad 설정 방법</b><br>' +
-            '① 설정 앱 열기<br>' +
-            '② 개인정보 보호 및 보안 → 사진<br>' +
-            '③ Safari(또는 사용 중인 브라우저) → <b>"모든 사진" 또는 "읽기 및 쓰기"</b> 선택<br><br>' +
-            '설정 변경 후 페이지를 새로고침하고 다시 눌러주세요.'
-          );
-        } else if (isAndroid) {
-          showGalleryGuide(
-            '사진/파일 접근이 차단됐을 수 있어요.<br><br>' +
-            '🤖 <b>Android 설정 방법</b><br>' +
-            '① 브라우저 주소창 왼쪽 🔒 또는 ⓘ 아이콘 탭<br>' +
-            '② 권한 → 사진 및 미디어(또는 파일) → <b>허용</b><br><br>' +
-            '또는 설정 → 앱 → 브라우저 → 권한 → 저장공간/미디어 허용<br><br>' +
-            '설정 변경 후 다시 눌러주세요.'
-          );
-        }
-      }
-      window.removeEventListener('focus', onFocusBack);
-    }, 300);
-  };
-
-  window.addEventListener('focus', onFocusBack);
-  const onchange = () => { guided = true; };
-  inp.addEventListener('change', onchange, { once: true });
+  const inp=document.getElementById(inputId); if(!inp) return;
+  inp.value=''; let guided=false;
+  const onFocusBack=()=>{ setTimeout(()=>{ if(!guided&&inp.value===''){
+    const isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent)&&!window.MSStream;
+    const isAndroid=/Android/.test(navigator.userAgent);
+    if(isIOS) showGalleryGuide('사진 접근이 차단됐을 수 있어요.<br>설정 앱 → 개인정보 보호 → 사진 → Safari → "모든 사진" 선택 후 새로고침해 주세요.');
+    else if(isAndroid) showGalleryGuide('사진 접근이 차단됐을 수 있어요.<br>브라우저 주소창 🔒 아이콘 → 권한 → 사진 → 허용 후 다시 눌러주세요.');
+  } window.removeEventListener('focus',onFocusBack); },300); };
+  window.addEventListener('focus',onFocusBack);
+  inp.addEventListener('change',()=>{guided=true;},{once:true});
   inp.click();
 }
+function triggerPhoto(e,inputId){ e.preventDefault(); e.stopPropagation(); const inp=document.getElementById(inputId); if(inp){inp.value='';inp.click();} }
 
-function triggerPhoto(e, inputId) {
-  e.preventDefault();
-  e.stopPropagation();
-  const inp = document.getElementById(inputId);
-  if (inp) { inp.value = ''; inp.click(); }
-}
-
-/* ═══════════════════════════════
-   사진 처리
-═══════════════════════════════ */
-function formatBytes(b) {
-  if (b < 1024) return b + 'B';
-  if (b < 1024*1024) return (b/1024).toFixed(0) + 'KB';
-  return (b/1024/1024).toFixed(1) + 'MB';
-}
+/* ── 사진 처리 ── */
+function formatBytes(b){ if(b<1024) return b+'B'; if(b<1024*1024) return (b/1024).toFixed(0)+'KB'; return (b/1024/1024).toFixed(1)+'MB'; }
 
 function handlePhoto(e, i) {
   const f = e.target.files[0]; if (!f) return;
@@ -1294,7 +852,7 @@ function handlePhoto(e, i) {
     document.getElementById('pi'+i).src = data;
     document.getElementById('pc'+i).classList.add('hp');
     const sizeEl = document.getElementById('ps'+i);
-    const bytes  = data.length * 0.75;
+    const bytes = data.length * 0.75;
     sizeEl.textContent = formatBytes(bytes);
     sizeEl.classList.toggle('warn', bytes > PHOTO_LIMIT_BYTES);
     checkStorageSize();
@@ -1315,166 +873,120 @@ function delPhoto(e, i) {
 
 function checkStorageSize() {
   const total = photos.filter(Boolean).reduce((s,p) => s + p.length*0.75, 0);
-  const warn  = document.getElementById('storageWarn');
-  const msg   = document.getElementById('storageWarnMsg');
+  const warn = document.getElementById('storageWarn'), msg = document.getElementById('storageWarnMsg');
   if (total > STORAGE_WARN_BYTES) {
-    msg.textContent = `사진 용량 ${formatBytes(total)} — 저장 실패 가능. 사진을 줄여주세요.`;
+    msg.textContent = `사진 용량 ${formatBytes(total)} — 로컬 저장 실패 가능`;
     warn.classList.add('show');
   } else {
     warn.classList.remove('show');
   }
 }
 
-/* ═══════════════════════════════
-   저장
-═══════════════════════════════ */
-function g(id) { return document.getElementById(id)?.value ?? ''; }
+/* ── 저장 ── */
+function g(id){ return document.getElementById(id)?.value??''; }
 
-function saveRecord() {
-  if (!g('f-seqno') && !g('f-mgmtno')) {
-    showToast('⚠️ 조사연번 또는 관리번호를 입력하세요'); return;
-  }
-  const seqno = g('f-seqno') || getNextSeqno();
-  const vr1 = g('f-vroom1'), vr2 = g('f-vroom2'), vr3 = g('f-vroom3');
-  const vroomSize = (vr1||vr2||vr3) ? `${vr1||'?'} × ${vr2||'?'} × ${vr3||'?'} m` : '';
+async function saveRecord(){
+  if(!g('f-seqno')&&!g('f-mgmtno')){ showToast('⚠️ 조사연번 또는 관리번호를 입력하세요'); return; }
+  const seqno=g('f-seqno')||getNextSeqno();
+  const vr1=g('f-vroom1'),vr2=g('f-vroom2'),vr3=g('f-vroom3');
+  const vroomSize=(vr1||vr2||vr3)?`${vr1||'?'} × ${vr2||'?'} × ${vr3||'?'} m`:'';
 
-  const rec = {
-    id: Date.now(),
-    date: g('f-date'),
-    seqno: parseInt(seqno) || getNextSeqno(),
-    mgmtno: g('f-mgmtno'),
-    addr: g('f-addr') || gpsData?.addr || '',
-    bigblock: g('f-bigblock'), midblock: g('f-midblock'), smallblock: g('f-smallblock'), smallmemo: selValveStateVal,
-    gps: gpsData ? `${gpsData.lat},${gpsData.lng}` : '',
-    gpsLat: gpsData ? parseFloat(gpsData.lat) : null,
-    gpsLng: gpsData ? parseFloat(gpsData.lng) : null,
-    vtype: g('f-vtype'), vform: gv('f-vform','dt-vform'),
-    drive: g('f-drive'), maker: gv('f-maker','dt-maker'),
-    dia: gv('f-dia','dt-dia'), material: gv('f-material','dt-material'),
-    installyear: g('f-installyear'), rotation: g('f-rotation'),
-    totalrot: g('f-totalrot'), currot: g('f-currot'),
-    depth: g('f-depth'), openclosed: selOCVal,
-    vroomSize,
-    protbox: gv('f-protbox','dt-protbox'),
-    vremark: gv('f-vremark','dt-vremark'),
-    smcover: gv('f-smcover','dt-smcover'),
-    manhole: document.getElementById('f-manhole').disabled ? '' : gv('f-manhole','dt-manhole'),
-    notes: g('f-notes'),
-    photos: [...photos]
+  const rec={
+    id:Date.now(), date:g('f-date'), seqno:parseInt(seqno)||getNextSeqno(),
+    mgmtno:g('f-mgmtno'), addr:g('f-addr')||gpsData?.addr||'',
+    bigblock:g('f-bigblock'), midblock:g('f-midblock'), smallblock:g('f-smallblock'), smallmemo:selValveStateVal,
+    gps:gpsData?`${gpsData.lat},${gpsData.lng}`:'',
+    gpsLat:gpsData?parseFloat(gpsData.lat):null, gpsLng:gpsData?parseFloat(gpsData.lng):null,
+    vtype:g('f-vtype'), vform:gv('f-vform','dt-vform'), drive:g('f-drive'), maker:gv('f-maker','dt-maker'),
+    dia:gv('f-dia','dt-dia'), material:gv('f-material','dt-material'),
+    installyear:g('f-installyear'), rotation:g('f-rotation'),
+    totalrot:g('f-totalrot'), currot:g('f-currot'), depth:g('f-depth'), openclosed:selOCVal,
+    vroomSize, protbox:gv('f-protbox','dt-protbox'), vremark:gv('f-vremark','dt-vremark'),
+    smcover:gv('f-smcover','dt-smcover'),
+    manhole:document.getElementById('f-manhole').disabled?'':gv('f-manhole','dt-manhole'),
+    notes:g('f-notes'), photos:[...photos]
   };
+
+  // 저장 버튼 비활성화
+  const btn=document.getElementById('saveBtn');
+  btn.disabled=true; btn.textContent='⏳ 저장 중...';
+
+  // 사진 업로드 진행 표시
+  [2,3].forEach(i=>{ if(photos[i]) document.getElementById('pu'+i).classList.add('on'); });
+
   records.unshift(rec);
-  if (saveRecords()) {
-    showToast('✅ 저장 완료!  #' + rec.seqno);
+  if(saveRecords()){
+    // Firebase 저장 (Storage 사진 업로드 포함)
+    if(window.fbSaveRecord){
+      await window.fbSaveRecord(rec);
+    }
+    // 업로드 후 로컬 사진 URL 업데이트
+    [2,3].forEach(i=>{ document.getElementById('pu'+i).classList.remove('on'); });
+    showToast('✅ 저장 완료!  #'+rec.seqno);
+    btn.disabled=false; btn.textContent='💾 관리대장 저장';
     resetForm(); updateBadge();
-    // Firebase 동기화
-    if (window.fbSaveRecord) window.fbSaveRecord(rec);
   } else {
     records.shift();
+    [2,3].forEach(i=>{ document.getElementById('pu'+i).classList.remove('on'); });
+    btn.disabled=false; btn.textContent='💾 관리대장 저장';
     showToast('❌ 저장 실패! 사진 용량을 줄여보세요.');
   }
 }
 
-/* ═══════════════════════════════
-   폼 초기화
-═══════════════════════════════ */
-function resetForm() {
-  ['f-mgmtno','f-addr','f-bigblock','f-midblock','f-smallblock',
-   'f-installyear','f-totalrot','f-currot','f-depth','f-notes',
-   'f-vroom1','f-vroom2','f-vroom3',
-   'dt-vform','dt-maker','dt-dia','dt-material','dt-protbox','dt-smcover','dt-manhole','dt-vremark']
-    .forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
+/* ── 폼 초기화 ── */
+function resetForm(){
+  ['f-mgmtno','f-addr','f-bigblock','f-midblock','f-smallblock','f-installyear','f-totalrot','f-currot','f-depth','f-notes',
+   'f-vroom1','f-vroom2','f-vroom3','dt-vform','dt-maker','dt-dia','dt-material','dt-protbox','dt-smcover','dt-manhole','dt-vremark']
+    .forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
   ['f-vtype','f-drive','f-rotation','f-dia','f-material','f-protbox','f-smcover','f-manhole','f-vremark']
-    .forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
-  updateVformOptions('');
-  updateMakerOptions('');
-  document.getElementById('f-seqno').value = getNextSeqno();
-  document.querySelectorAll('.dw').forEach(el => el.classList.remove('on'));
-  selOCVal = '';
-  document.getElementById('oc-open').classList.remove('on');
-  document.getElementById('oc-close').classList.remove('on');
-  selValveStateVal = '';
-  document.getElementById('oc-possible').classList.remove('on');
-  document.getElementById('oc-impossible').classList.remove('on');
-  applyValveSectionDisabled(false);
-
-  // 맨홀철개 활성화 초기화
-  document.getElementById('f-manhole').disabled = false;
+    .forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+  updateVformOptions(''); updateMakerOptions('');
+  document.getElementById('f-seqno').value=getNextSeqno();
+  document.querySelectorAll('.dw').forEach(el=>el.classList.remove('on'));
+  selOCVal=''; ['oc-open','oc-close','oc-possible','oc-impossible'].forEach(id=>document.getElementById(id).classList.remove('on'));
+  selValveStateVal=''; applyValveSectionDisabled(false);
+  document.getElementById('f-manhole').disabled=false;
   document.getElementById('manholeDisabledBadge').classList.remove('on');
-
-  photos = [null,null,null,null];
-  [2,3].forEach(i => {
-    document.getElementById('pi'+i).src = '';
-    document.getElementById('pc'+i).classList.remove('hp');
-    document.getElementById('ps'+i).textContent = '';
-  });
-  document.getElementById('storageWarn').classList.remove('show');
-  document.getElementById('gpsGuide').classList.remove('show');
-  document.getElementById('galleryGuide').classList.remove('show');
-  gpsData = null;
+  photos=[null,null,null,null];
+  [2,3].forEach(i=>{ document.getElementById('pi'+i).src=''; document.getElementById('pc'+i).classList.remove('hp'); document.getElementById('ps'+i).textContent=''; });
+  ['storageWarn','gpsGuide','galleryGuide'].forEach(id=>document.getElementById(id).classList.remove('show'));
+  gpsData=null;
   document.getElementById('gpsDot').classList.remove('on');
-  document.getElementById('gpsVal').textContent = '미수신';
-  document.getElementById('gpsVal').className = 'gps-val';
-  document.getElementById('gpsBtn').textContent = '📍 위치받기';
-  document.getElementById('gpsBtn').disabled = false;
-  document.getElementById('f-addr').placeholder = '직접 입력하거나 GPS로 자동입력';
-  document.getElementById('f-date').value = new Date().toISOString().split('T')[0];
+  document.getElementById('gpsVal').textContent='미수신';
+  document.getElementById('gpsVal').className='gps-val';
+  document.getElementById('gpsBtn').textContent='📍 위치받기';
+  document.getElementById('gpsBtn').disabled=false;
+  document.getElementById('f-addr').placeholder='직접 입력하거나 GPS로 자동입력';
+  document.getElementById('f-date').value=new Date().toISOString().split('T')[0];
   updateSeqPreview();
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  window.scrollTo({top:0,behavior:'smooth'});
 }
 
-/* ═══════════════════════════════
-   로컬스토리지
-═══════════════════════════════ */
-function saveRecords() {
-  try { localStorage.setItem('valve-v7', JSON.stringify(records)); return true; }
-  catch(e) { console.error(e); return false; }
-}
-function loadRecords() {
-  try {
-    const d  = localStorage.getItem('valve-v7');
-    const d5 = localStorage.getItem('valve-v5');
-    const d3 = localStorage.getItem('valve-v3');
-    if (d) { records = JSON.parse(d); }
-    else if (d5) {
-      records = JSON.parse(d5);
-      records.forEach(r => { if (!r.vroomSize) r.vroomSize = ''; });
-      saveRecords(); showToast('📦 이전 데이터 불러옴 (v5→v7)');
-    } else if (d3) {
-      records = JSON.parse(d3);
-      records.forEach(r => {
-        if (!r.vroomSize) r.vroomSize = '';
-        if (r.gps && !r.gpsLat) {
-          const p = r.gps.split(',');
-          if (p.length === 2) { r.gpsLat = parseFloat(p[0]); r.gpsLng = parseFloat(p[1]); }
-        }
-      });
-      saveRecords(); showToast('📦 이전 데이터 불러옴 (v3→v7)');
-    }
-  } catch(e) { records = []; }
+/* ── 로컬스토리지 ── */
+function saveRecords(){ try{ localStorage.setItem('valve-v7',JSON.stringify(records)); return true; }catch(e){ return false; } }
+function loadRecords(){
+  try{
+    const d=localStorage.getItem('valve-v7'), d5=localStorage.getItem('valve-v5'), d3=localStorage.getItem('valve-v3');
+    if(d){ records=JSON.parse(d); }
+    else if(d5){ records=JSON.parse(d5); records.forEach(r=>{ if(!r.vroomSize) r.vroomSize=''; }); saveRecords(); showToast('📦 이전 데이터 불러옴'); }
+    else if(d3){ records=JSON.parse(d3); records.forEach(r=>{ if(!r.vroomSize) r.vroomSize=''; if(r.gps&&!r.gpsLat){const p=r.gps.split(',');if(p.length===2){r.gpsLat=parseFloat(p[0]);r.gpsLng=parseFloat(p[1]);}} }); saveRecords(); showToast('📦 이전 데이터 불러옴'); }
+  }catch(e){ records=[]; }
   renderList();
 }
 
-/* ═══════════════════════════════
-   목록 렌더링
-═══════════════════════════════ */
-function renderList() {
-  const ft = document.getElementById('filterType').value;
-  const sq = document.getElementById('searchBox').value.toLowerCase();
-  let list = records;
-  if (ft) list = list.filter(r => r.vtype === ft);
-  if (sq) list = list.filter(r =>
-    (r.mgmtno||'').toLowerCase().includes(sq) ||
-    (r.addr||'').toLowerCase().includes(sq) ||
-    String(r.seqno||'').includes(sq)
-  );
-  document.getElementById('statTotal').textContent  = records.length;
-  document.getElementById('statOpen').textContent   = records.filter(r => r.openclosed==='OPEN').length;
-  document.getElementById('statClose').textContent  = records.filter(r => r.openclosed==='CLOSE').length;
-  document.getElementById('statGps').textContent    = records.filter(r => r.gps).length;
-
-  const c = document.getElementById('listContainer');
-  if (!list.length) { c.innerHTML='<div class="no-rec"><div class="ic">📭</div>기록이 없습니다</div>'; return; }
-  c.innerHTML = list.map(r => `
+/* ── 목록 렌더링 ── */
+function renderList(){
+  const ft=document.getElementById('filterType').value, sq=document.getElementById('searchBox').value.toLowerCase();
+  let list=records;
+  if(ft) list=list.filter(r=>r.vtype===ft);
+  if(sq) list=list.filter(r=>(r.mgmtno||'').toLowerCase().includes(sq)||(r.addr||'').toLowerCase().includes(sq)||String(r.seqno||'').includes(sq));
+  document.getElementById('statTotal').textContent=records.length;
+  document.getElementById('statOpen').textContent=records.filter(r=>r.openclosed==='OPEN').length;
+  document.getElementById('statClose').textContent=records.filter(r=>r.openclosed==='CLOSE').length;
+  document.getElementById('statGps').textContent=records.filter(r=>r.gps).length;
+  const c=document.getElementById('listContainer');
+  if(!list.length){ c.innerHTML='<div class="no-rec"><div class="ic">📭</div>기록이 없습니다</div>'; return; }
+  c.innerHTML=list.map(r=>`
     <div class="r-card" onclick="openDetail(${r.id})">
       <div class="r-head">
         <span class="r-seq">#${r.seqno||'?'}</span>
@@ -1494,88 +1006,69 @@ function renderList() {
     </div>`).join('');
 }
 
-/* ═══════════════════════════════
-   상세 모달
-═══════════════════════════════ */
-function openDetail(id) {
-  const r = records.find(x => x.id===id); if (!r) return;
-  document.getElementById('mTitle').textContent = `${r.mgmtno||'관리번호 없음'} — ${r.date}`;
-  const ocB = r.openclosed==='OPEN'
-    ? `<span style="color:#2e7d32;font-weight:900">🟢 OPEN</span>`
-    : r.openclosed==='CLOSE'
-    ? `<span style="color:#c62828;font-weight:900">🔴 CLOSE</span>` : '-';
-  const pLb = ['위치상세도','위치도','사진(원경)','사진(근경)'];
-  const vp  = (r.photos||[]).map((p,i) => ({src:p, lb:pLb[i]})).filter(x=>x.src);
-  document.getElementById('mBody').innerHTML = `
-    <div class="d-sec"><div class="d-sec-ttl">기본현황</div>
-      <div class="d-grid">
-        <div class="d-item"><div class="d-key">조사연번</div><div class="d-val">${r.seqno||'-'}</div></div>
-        <div class="d-item"><div class="d-key">관리번호</div><div class="d-val">${r.mgmtno||'-'}</div></div>
-        <div class="d-item full"><div class="d-key">주소</div><div class="d-val">${r.addr||'-'}</div></div>
-        <div class="d-item"><div class="d-key">대블록</div><div class="d-val">${r.bigblock||'-'}</div></div>
-        <div class="d-item"><div class="d-key">중블록</div><div class="d-val">${r.midblock||'-'}</div></div>
-        <div class="d-item full"><div class="d-key">소블록</div><div class="d-val">${r.smallblock||'-'}</div></div>
-        ${r.smallmemo?`<div class="d-item full"><div class="d-key">밸브상태</div><div class="d-val">${r.smallmemo==='개폐가능'?'✅ 개폐가능':r.smallmemo==='개폐불가'?'🚫 개폐불가':r.smallmemo}</div></div>`:''}
-        ${r.gps?`<div class="d-item full"><div class="d-key">GPS</div><div class="d-val" style="font-family:monospace;font-size:12px">${r.gps}</div></div>`:''}
-      </div></div>
-    <div class="d-sec"><div class="d-sec-ttl">밸브 현황</div>
-      <div class="d-grid">
-        <div class="d-item"><div class="d-key">밸브종류</div><div class="d-val">${r.vtype||'-'}</div></div>
-        <div class="d-item"><div class="d-key">형식</div><div class="d-val">${r.vform||'-'}</div></div>
-        <div class="d-item"><div class="d-key">구동방법</div><div class="d-val">${r.drive||'-'}</div></div>
-        <div class="d-item"><div class="d-key">제작회사</div><div class="d-val">${r.maker||'-'}</div></div>
-        <div class="d-item"><div class="d-key">구경</div><div class="d-val">${r.dia?r.dia+'mm':'-'}</div></div>
-        <div class="d-item"><div class="d-key">재질</div><div class="d-val">${r.material||'-'}</div></div>
-        <div class="d-item"><div class="d-key">설치년도</div><div class="d-val">${r.installyear||'-'}</div></div>
-        <div class="d-item"><div class="d-key">회전방향</div><div class="d-val">${r.rotation||'-'}</div></div>
-        <div class="d-item"><div class="d-key">총회전수</div><div class="d-val">${r.totalrot||'-'}</div></div>
-        <div class="d-item"><div class="d-key">현회전수</div><div class="d-val">${r.currot||'-'}</div></div>
-        <div class="d-item"><div class="d-key">심도</div><div class="d-val">${r.depth||'-'}</div></div>
-        <div class="d-item"><div class="d-key">개폐여부</div><div class="d-val">${ocB}</div></div>
-      </div></div>
-    <div class="d-sec"><div class="d-sec-ttl">밸브실 현황</div>
-      <div class="d-grid">
-        <div class="d-item full"><div class="d-key">밸브실 크기</div><div class="d-val">${r.vroomSize||'-'}</div></div>
-        <div class="d-item"><div class="d-key">소형철개</div><div class="d-val">${r.smcover||'-'}</div></div>
-        <div class="d-item"><div class="d-key">보호통</div><div class="d-val">${r.protbox||'-'}</div></div>
-        <div class="d-item"><div class="d-key">맨홀철개</div><div class="d-val">${r.manhole||'-'}</div></div>
-        ${r.vremark?`<div class="d-item full"><div class="d-key">밸브실 비고</div><div class="d-val">${r.vremark}</div></div>`:''}
-      </div></div>
+/* ── 상세 모달 ── */
+function openDetail(id){
+  const r=records.find(x=>x.id===id); if(!r) return;
+  document.getElementById('mTitle').textContent=`${r.mgmtno||'관리번호 없음'} — ${r.date}`;
+  const ocB=r.openclosed==='OPEN'?`<span style="color:#2e7d32;font-weight:900">🟢 OPEN</span>`:r.openclosed==='CLOSE'?`<span style="color:#c62828;font-weight:900">🔴 CLOSE</span>`:'-';
+  const pLb=['위치상세도','위치도','사진(원경)','사진(근경)'];
+  const vp=(r.photos||[]).map((p,i)=>({src:p,lb:pLb[i]})).filter(x=>x.src);
+  document.getElementById('mBody').innerHTML=`
+    <div class="d-sec"><div class="d-sec-ttl">기본현황</div><div class="d-grid">
+      <div class="d-item"><div class="d-key">조사연번</div><div class="d-val">${r.seqno||'-'}</div></div>
+      <div class="d-item"><div class="d-key">관리번호</div><div class="d-val">${r.mgmtno||'-'}</div></div>
+      <div class="d-item full"><div class="d-key">주소</div><div class="d-val">${r.addr||'-'}</div></div>
+      <div class="d-item"><div class="d-key">대블록</div><div class="d-val">${r.bigblock||'-'}</div></div>
+      <div class="d-item"><div class="d-key">중블록</div><div class="d-val">${r.midblock||'-'}</div></div>
+      <div class="d-item full"><div class="d-key">소블록</div><div class="d-val">${r.smallblock||'-'}</div></div>
+      ${r.smallmemo?`<div class="d-item full"><div class="d-key">밸브상태</div><div class="d-val">${r.smallmemo==='개폐가능'?'✅ 개폐가능':r.smallmemo==='개폐불가'?'🚫 개폐불가':r.smallmemo}</div></div>`:''}
+      ${r.gps?`<div class="d-item full"><div class="d-key">GPS</div><div class="d-val" style="font-family:monospace;font-size:12px">${r.gps}</div></div>`:''}
+    </div></div>
+    <div class="d-sec"><div class="d-sec-ttl">밸브 현황</div><div class="d-grid">
+      <div class="d-item"><div class="d-key">밸브종류</div><div class="d-val">${r.vtype||'-'}</div></div>
+      <div class="d-item"><div class="d-key">형식</div><div class="d-val">${r.vform||'-'}</div></div>
+      <div class="d-item"><div class="d-key">구동방법</div><div class="d-val">${r.drive||'-'}</div></div>
+      <div class="d-item"><div class="d-key">제작회사</div><div class="d-val">${r.maker||'-'}</div></div>
+      <div class="d-item"><div class="d-key">구경</div><div class="d-val">${r.dia?r.dia+'mm':'-'}</div></div>
+      <div class="d-item"><div class="d-key">재질</div><div class="d-val">${r.material||'-'}</div></div>
+      <div class="d-item"><div class="d-key">설치년도</div><div class="d-val">${r.installyear||'-'}</div></div>
+      <div class="d-item"><div class="d-key">회전방향</div><div class="d-val">${r.rotation||'-'}</div></div>
+      <div class="d-item"><div class="d-key">총회전수</div><div class="d-val">${r.totalrot||'-'}</div></div>
+      <div class="d-item"><div class="d-key">현회전수</div><div class="d-val">${r.currot||'-'}</div></div>
+      <div class="d-item"><div class="d-key">심도</div><div class="d-val">${r.depth||'-'}</div></div>
+      <div class="d-item"><div class="d-key">개폐여부</div><div class="d-val">${ocB}</div></div>
+    </div></div>
+    <div class="d-sec"><div class="d-sec-ttl">밸브실 현황</div><div class="d-grid">
+      <div class="d-item full"><div class="d-key">밸브실 크기</div><div class="d-val">${r.vroomSize||'-'}</div></div>
+      <div class="d-item"><div class="d-key">소형철개</div><div class="d-val">${r.smcover||'-'}</div></div>
+      <div class="d-item"><div class="d-key">보호통</div><div class="d-val">${r.protbox||'-'}</div></div>
+      <div class="d-item"><div class="d-key">맨홀철개</div><div class="d-val">${r.manhole||'-'}</div></div>
+      ${r.vremark?`<div class="d-item full"><div class="d-key">밸브실 비고</div><div class="d-val">${r.vremark}</div></div>`:''}
+    </div></div>
     ${r.notes?`<div class="d-sec"><div class="d-sec-ttl">기타사항</div><p style="font-size:13px;line-height:1.7">${r.notes.replace(/\n/g,'<br>')}</p></div>`:''}
-    ${vp.length?`<div class="d-sec"><div class="d-sec-ttl">사진 (${vp.length}장)</div><div class="d-photos">${vp.map(p=>`<div><img src="${p.src}"><div class="d-photo-lb">${p.lb}</div></div>`).join('')}</div></div>`:''}
-    <div class="m-actions">
-      <button class="m-del" onclick="deleteRecord(${r.id})">🗑 삭제</button>
-    </div>`;
+    ${vp.length?`<div class="d-sec"><div class="d-sec-ttl">사진 (${vp.length}장)</div><div class="d-photos">${vp.map(p=>`<div><img src="${p.src}" loading="lazy"><div class="d-photo-lb">${p.lb}</div></div>`).join('')}</div></div>`:''}
+    <div class="m-actions"><button class="m-del" onclick="deleteRecord(${r.id})">🗑 삭제</button></div>`;
   document.getElementById('mOv').classList.add('on');
-  document.getElementById('mSheet').scrollTop = 0;
+  document.getElementById('mSheet').scrollTop=0;
 }
-function closeModal() { document.getElementById('mOv').classList.remove('on'); }
-function deleteRecord(id) {
-  if (!confirm('이 기록을 삭제할까요?')) return;
-  records = records.filter(r => r.id !== id);
+function closeModal(){ document.getElementById('mOv').classList.remove('on'); }
+function deleteRecord(id){
+  if(!confirm('이 기록을 삭제할까요?')) return;
+  const rec=records.find(r=>r.id===id);
+  records=records.filter(r=>r.id!==id);
   saveRecords(); closeModal(); renderList(); updateBadge();
   showToast('🗑 삭제되었습니다');
-  // Firebase 동기화
-  if (window.fbDeleteRecord) window.fbDeleteRecord(id);
+  if(window.fbDeleteRecord && rec) window.fbDeleteRecord(rec);
 }
 
-/* ═══════════════════════════════
-   GPS 지도 탭
-═══════════════════════════════ */
-function renderMapTab() {
-  const gpsRecords = records.filter(r => r.gpsLat && r.gpsLng);
-  const mapEmpty = document.getElementById('mapEmpty');
-  const gpsMap   = document.getElementById('gpsMap');
-  const mapList  = document.getElementById('mapList');
-  if (!gpsRecords.length) {
-    mapEmpty.style.display = 'flex'; gpsMap.style.display = 'none';
-    mapList.innerHTML = '<div style="font-size:12px;color:var(--muted);text-align:center;padding:16px">GPS 데이터가 있는 기록이 없어요</div>';
-    return;
-  }
-  mapEmpty.style.display = 'none'; gpsMap.style.display = 'block';
-  const c = gpsRecords[0];
-  gpsMap.src = `https://maps.google.com/maps?q=${c.gpsLat},${c.gpsLng}&z=15&output=embed`;
-  mapList.innerHTML = gpsRecords.map((r,i) => `
+/* ── GPS 지도 ── */
+function renderMapTab(){
+  const gr=records.filter(r=>r.gpsLat&&r.gpsLng);
+  const mapEmpty=document.getElementById('mapEmpty'), gpsMap=document.getElementById('gpsMap'), mapList=document.getElementById('mapList');
+  if(!gr.length){ mapEmpty.style.display='flex'; gpsMap.style.display='none'; mapList.innerHTML='<div style="font-size:12px;color:var(--muted);text-align:center;padding:16px">GPS 데이터가 있는 기록이 없어요</div>'; return; }
+  mapEmpty.style.display='none'; gpsMap.style.display='block';
+  const c=gr[0]; gpsMap.src=`https://maps.google.com/maps?q=${c.gpsLat},${c.gpsLng}&z=15&output=embed`;
+  mapList.innerHTML=gr.map((r,i)=>`
     <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:#f7f9fc;border-radius:8px;border:1px solid var(--border)">
       <div style="min-width:24px;height:24px;border-radius:50%;background:var(--blue-dark);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center">${i+1}</div>
       <div style="flex:1;min-width:0">
@@ -1586,130 +1079,50 @@ function renderMapTab() {
     </div>`).join('');
 }
 
-/* ═══════════════════════════════
-   조서 템플릿에 데이터 추가 저장
-   기존 xlsm 파일을 불러와 조서 시트에 데이터 삽입
-═══════════════════════════════ */
-async function exportExcelTemplate() {
-  if (!records.length) { showToast('내보낼 기록이 없습니다'); return; }
+/* ── 엑셀 내보내기 ── */
+async function exportExcel(){
+  if(!records.length){ showToast('내보낼 기록이 없습니다'); return; }
+  const sorted=[...records].sort((a,b)=>(parseInt(a.seqno)||0)-(parseInt(b.seqno)||0));
+  const wb=XLSX.utils.book_new();
+  const headers=['조사연번','관리번호','주소','종류','대블록','중블록','소블록','형식','구동방법','제작회사','구경','재질','설치년도','회전방향','회전수','개폐여부','보호통','밸브실','소형철개','맨홀철개','심도','조사일자','비고','밸브상태'];
+  const dataRows=sorted.map(r=>[r.seqno,r.mgmtno,r.addr,r.vtype,r.bigblock,r.midblock,r.smallblock,r.vform,r.drive,r.maker,r.dia,r.material,r.installyear,r.rotation,r.totalrot,r.openclosed,r.protbox,r.vroomSize,r.smcover,r.manhole,r.depth,r.date,r.notes,r.smallmemo]);
+  const ws=XLSX.utils.aoa_to_sheet([headers,...dataRows]);
+  ws['!cols']=[{wch:9},{wch:11},{wch:16},{wch:9},{wch:8},{wch:8},{wch:8},{wch:8},{wch:9},{wch:8},{wch:6},{wch:8},{wch:9},{wch:8},{wch:8},{wch:9},{wch:8},{wch:18},{wch:9},{wch:9},{wch:6},{wch:12},{wch:22},{wch:12}];
+  XLSX.utils.book_append_sheet(wb, ws, '조서');
+  const ok=await downloadExcel(wb,`밸브류관리대장_${new Date().toISOString().split('T')[0]}.xlsx`);
+  if(ok) showToast('📊 엑셀 저장 완료!');
+}
 
-  // 파일 선택
-  return new Promise(resolve => {
-    const inp = document.createElement('input');
-    inp.type = 'file';
-    inp.accept = '.xlsx,.xlsm,.xls';
-    inp.onchange = async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
+async function exportExcelTemplate(){
+  if(!records.length){ showToast('내보낼 기록이 없습니다'); return; }
+  return new Promise(resolve=>{
+    const inp=document.createElement('input'); inp.type='file'; inp.accept='.xlsx,.xlsm,.xls';
+    inp.onchange=async(e)=>{
+      const file=e.target.files[0]; if(!file) return;
       showToast('📂 파일 읽는 중...');
-
-      const reader = new FileReader();
-      reader.onload = async (ev) => {
-        try {
-          const data = ev.target.result;
-          const wb = XLSX.read(data, { type: 'array', cellStyles: true });
-
-          // 조서 시트 찾기
-          const sheetName = wb.SheetNames.find(n => n === '조서') || wb.SheetNames[0];
-          const ws = wb.Sheets[sheetName];
-
-          // 기존 데이터 마지막 행 찾기
-          const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
-          const lastRow = range.e.r; // 0-indexed
-
-          // 조사연번 오름차순 정렬
-          const sorted = [...records].sort((a, b) => {
-            const na = parseInt(a.seqno) || 0, nb = parseInt(b.seqno) || 0;
-            return na - nb;
-          });
-
-          // 기존 조서의 조사연번 목록 수집 (중복 방지)
-          const existingSeqnos = new Set();
-          for (let r = 1; r <= lastRow; r++) {
-            const cell = ws[XLSX.utils.encode_cell({r, c: 0})];
-            if (cell && cell.v !== undefined) existingSeqnos.add(String(cell.v));
-          }
-
-          // 컬럼 순서 (조서 원본: A~X 기준)
-          // A:조사연번 B:출력번호 C:관리번호 D:주소 E:종류 F:대블록 G:중블록 H:소블록
-          // I:형식 J:구동방법 K:제작회사 L:구경 M:재질 N:설치년도 O:회전방향 P:회전수
-          // Q:개폐여부 R:보호통 S:밸브실 T:소형철개 U:맨홀철개 V:심도 W:조사일자 X:비고
-          let addedCount = 0;
-          let writeRow = lastRow + 1;
-
-          sorted.forEach(r => {
-            // 이미 있는 연번은 덮어쓰기 (업데이트)
-            let targetRow = writeRow;
-            if (existingSeqnos.has(String(r.seqno))) {
-              // 기존 행 위치 찾기
-              for (let row = 1; row <= lastRow; row++) {
-                const c = ws[XLSX.utils.encode_cell({r: row, c: 0})];
-                if (c && String(c.v) === String(r.seqno)) {
-                  targetRow = row;
-                  break;
-                }
-              }
-            } else {
-              writeRow++;
-            }
-
-            const rowData = [
-              r.seqno,          // A: 조사연번
-              '',               // B: 출력번호 (공란)
-              r.mgmtno,         // C: 관리번호
-              r.addr,           // D: 주소
-              r.vtype,          // E: 종류
-              r.bigblock,       // F: 대블록
-              r.midblock,       // G: 중블록
-              r.smallblock,     // H: 소블록
-              r.vform,          // I: 형식
-              r.drive,          // J: 구동방법
-              r.maker,          // K: 제작회사
-              r.dia,            // L: 구경
-              r.material,       // M: 재질
-              r.installyear,    // N: 설치년도
-              r.rotation,       // O: 회전방향
-              r.totalrot,       // P: 회전수
-              r.openclosed,     // Q: 개폐여부
-              r.protbox,        // R: 보호통
-              r.vroomSize,      // S: 밸브실
-              r.smcover,        // T: 소형철개
-              r.manhole,        // U: 맨홀철개
-              r.depth,          // V: 심도
-              r.date,           // W: 조사일자
-              (r.notes || '') + (r.vremark ? (r.notes ? ' / ' : '') + r.vremark : '') + (r.smallmemo ? (r.notes||r.vremark ? ' / ' : '') + r.smallmemo : '') // X: 비고 통합
-            ];
-
-            rowData.forEach((val, c) => {
-              const addr = XLSX.utils.encode_cell({r: targetRow, c});
-              const existing = ws[addr];
-              ws[addr] = {
-                v: val === null || val === undefined ? '' : val,
-                t: typeof val === 'number' ? 'n' : 's',
-                // 기존 셀 스타일 유지
-                s: existing ? existing.s : undefined
-              };
-            });
+      const reader=new FileReader();
+      reader.onload=async(ev)=>{
+        try{
+          const wb=XLSX.read(ev.target.result,{type:'array'});
+          const sheetName=wb.SheetNames.find(n=>n==='조서')||wb.SheetNames[0];
+          const ws=wb.Sheets[sheetName];
+          const range=XLSX.utils.decode_range(ws['!ref']||'A1');
+          const lastRow=range.e.r;
+          const sorted=[...records].sort((a,b)=>(parseInt(a.seqno)||0)-(parseInt(b.seqno)||0));
+          const existingSeqnos=new Set();
+          for(let r=1;r<=lastRow;r++){ const cell=ws[XLSX.utils.encode_cell({r,c:0})]; if(cell&&cell.v!==undefined) existingSeqnos.add(String(cell.v)); }
+          let addedCount=0, writeRow=lastRow+1;
+          sorted.forEach(r=>{
+            let targetRow=writeRow;
+            if(existingSeqnos.has(String(r.seqno))){ for(let row=1;row<=lastRow;row++){ const c=ws[XLSX.utils.encode_cell({r:row,c:0})]; if(c&&String(c.v)===String(r.seqno)){targetRow=row;break;} } } else writeRow++;
+            const rowData=[r.seqno,'',r.mgmtno,r.addr,r.vtype,r.bigblock,r.midblock,r.smallblock,r.vform,r.drive,r.maker,r.dia,r.material,r.installyear,r.rotation,r.totalrot,r.openclosed,r.protbox,r.vroomSize,r.smcover,r.manhole,r.depth,r.date,(r.notes||'')+(r.vremark?(r.notes?' / ':'')+r.vremark:'')+(r.smallmemo?(r.notes||r.vremark?' / ':'')+r.smallmemo:'')];
+            rowData.forEach((val,c)=>{ const addr=XLSX.utils.encode_cell({r:targetRow,c}); ws[addr]={v:val===null||val===undefined?'':val,t:typeof val==='number'?'n':'s'}; });
             addedCount++;
           });
-
-          // ref 범위 업데이트
-          const newLastRow = Math.max(lastRow, writeRow - 1);
-          ws['!ref'] = XLSX.utils.encode_range({
-            s: {r:0, c:0},
-            e: {r: newLastRow, c: range.e.c}
-          });
-
-          // 저장
-          const fileName = `밸브류관리대장_조서_${new Date().toISOString().split('T')[0]}.xlsx`;
-
-          const ok = await downloadExcel(wb, fileName, true);
-          if (ok) showToast(`✅ 조서 저장 완료! ${addedCount}건 반영`);
-
-        } catch(err) {
-          console.error(err);
-          showToast('❌ 파일 처리 오류: ' + err.message);
-        }
+          ws['!ref']=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:Math.max(lastRow,writeRow-1),c:range.e.c}});
+          const ok=await downloadExcel(wb,`밸브류관리대장_조서_${new Date().toISOString().split('T')[0]}.xlsx`);
+          if(ok) showToast(`✅ 조서 저장 완료! ${addedCount}건 반영`);
+        }catch(err){ showToast('❌ 파일 오류: '+err.message); }
       };
       reader.readAsArrayBuffer(file);
     };
@@ -1717,234 +1130,67 @@ async function exportExcelTemplate() {
   });
 }
 
-/* ═══════════════════════════════
-   엑셀 내보내기
-   — File System Access API (경로 선택) 지원 브라우저 우선
-   — 미지원 시 기존 다운로드 방식 fallback
-═══════════════════════════════ */
-async function exportExcel() {
-  if (!records.length) { showToast('내보낼 기록이 없습니다'); return; }
-
-  // 조사연번 오름차순 정렬
-  const sorted = [...records].sort((a, b) => {
-    const na = parseInt(a.seqno) || 0, nb = parseInt(b.seqno) || 0;
-    return na - nb;
-  });
-
-  const wb = XLSX.utils.book_new();
-
-  // ── 조서 시트 (대장양식참조용.xlsm 동일 구조) ──
-  const headers = [
-    '조사연번','관리번호','주소','종류','대블록','중블록','소블록',
-    '형식','구동방법','제작회사','구경','재질','설치년도',
-    '회전방향','회전수','개폐여부',
-    '보호통','밸브실','소형철개','맨홀철개','심도',
-    '조사일자','비고','밸브상태'
-  ];
-
-  const dataRows = sorted.map(r => [
-    r.seqno,                          // 조사연번
-    r.mgmtno,                         // 관리번호
-    r.addr,                           // 주소
-    r.vtype,                          // 종류
-    r.bigblock,                       // 대블록
-    r.midblock,                       // 중블록
-    r.smallblock,                     // 소블록
-    r.vform,                          // 형식
-    r.drive,                          // 구동방법
-    r.maker,                          // 제작회사
-    r.dia,                            // 구경
-    r.material,                       // 재질
-    r.installyear,                    // 설치년도
-    r.rotation,                       // 회전방향
-    r.totalrot,                       // 회전수(총)
-    r.openclosed,                     // 개폐여부
-    r.protbox,                        // 보호통
-    r.vroomSize,                      // 밸브실
-    r.smcover,                        // 소형철개
-    r.manhole,                        // 맨홀철개
-    r.depth,                          // 심도
-    r.date,                           // 조사일자
-    r.notes,                          // 비고(기타사항)
-    r.smallmemo                       // 밸브상태(개폐가능/불가)
-  ]);
-
-  const ws = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
-
-  // 열 너비 (조서 원본과 동일)
-  ws['!cols'] = [
-    {wch:9.25},  // 조사연번
-    {wch:11.25}, // 관리번호
-    {wch:15.875},// 주소
-    {wch:9.25},  // 종류
-    {wch:7.5},   // 대블록
-    {wch:7.5},   // 중블록
-    {wch:7.5},   // 소블록
-    {wch:8},     // 형식
-    {wch:9.25},  // 구동방법
-    {wch:8},     // 제작회사
-    {wch:5.625}, // 구경
-    {wch:8},     // 재질
-    {wch:9.25},  // 설치년도
-    {wch:8},     // 회전방향
-    {wch:7.5},   // 회전수
-    {wch:9.25},  // 개폐여부
-    {wch:7.5},   // 보호통
-    {wch:17.5},  // 밸브실
-    {wch:9.25},  // 소형철개
-    {wch:9.375}, // 맨홀철개
-    {wch:5.625}, // 심도
-    {wch:12.25}, // 조사일자
-    {wch:22.125},// 비고
-    {wch:12},    // 밸브상태
-  ];
-
-  // 헤더 행 굵게 + 가운데 정렬
-  headers.forEach((_, i) => {
-    const addr = XLSX.utils.encode_cell({r:0, c:i});
-    if (!ws[addr]) return;
-    ws[addr].s = { font:{bold:true, sz:11}, alignment:{horizontal:'center',vertical:'center'} };
-  });
-
-  // 헤더 행 높이
-  ws['!rows'] = [{hpt:20}];
-
-  XLSX.utils.book_append_sheet(wb, ws, '조서');
-
-  const fileName = `밸브류관리대장_${new Date().toISOString().split('T')[0]}.xlsx`;
-  const ok = await downloadExcel(wb, fileName, false);
-  if (ok) showToast('📊 엑셀 저장 완료! 다운로드 폴더를 확인하세요');
+async function downloadExcel(wb, fileName){
+  const wbOut=XLSX.write(wb,{bookType:'xlsx',type:'array'});
+  const blob=new Blob([wbOut],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  if(window.showSaveFilePicker){
+    try{
+      const handle=await window.showSaveFilePicker({suggestedName:fileName,types:[{description:'Excel',accept:{'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':['.xlsx']}}]});
+      const writable=await handle.createWritable(); await writable.write(blob); await writable.close(); return true;
+    }catch(err){ if(err.name==='AbortError'){showToast('❌ 저장을 취소했어요'); return false;} }
+  }
+  const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=fileName;
+  document.body.appendChild(a); a.click();
+  setTimeout(()=>{ URL.revokeObjectURL(url); document.body.removeChild(a); },1500);
+  return true;
 }
 
-/* ═══════════════════════════════
-   유틸
-═══════════════════════════════ */
-function updateBadge() { document.getElementById('recordCount').textContent = `${records.length}건`; }
-function showTab(tab, btn) {
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById('page-'+tab).classList.add('active');
-  btn.classList.add('active');
-  if (tab==='list') renderList();
-  if (tab==='map')  renderMapTab();
+/* ── JSON 백업 / 불러오기 ── */
+function exportJSON(){
+  if(!records.length){ showToast('내보낼 기록이 없습니다'); return; }
+  const blob=new Blob([JSON.stringify({version:1,exportedAt:new Date().toISOString(),records},null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob), a=document.createElement('a');
+  a.href=url; a.download=`밸브대장_백업_${new Date().toISOString().split('T')[0]}.json`;
+  document.body.appendChild(a); a.click();
+  setTimeout(()=>{ URL.revokeObjectURL(url); document.body.removeChild(a); },1500);
+  showToast(`💾 백업 완료! ${records.length}건`);
 }
-function showToast(msg) {
-  const t = document.getElementById('toast');
-  t.textContent = msg; t.classList.add('on');
-  setTimeout(() => t.classList.remove('on'), 2800);
-}
-
-/* ═══════════════════════════════
-   JSON 백업 내보내기 (모바일→PC 연동)
-═══════════════════════════════ */
-function exportJSON() {
-  if (!records.length) { showToast('내보낼 기록이 없습니다'); return; }
-  const data = JSON.stringify({ version: 1, exportedAt: new Date().toISOString(), records }, null, 2);
-  const blob = new Blob([data], { type: 'application/json' });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  const date = new Date().toISOString().split('T')[0];
-  a.href     = url;
-  a.download = `밸브대장_백업_${date}.json`;
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(() => { URL.revokeObjectURL(url); document.body.removeChild(a); }, 1500);
-  showToast(`💾 백업 완료! ${records.length}건 저장됨`);
-}
-
-/* ═══════════════════════════════
-   JSON 백업 불러오기 (PC에서 모바일 데이터 합치기)
-═══════════════════════════════ */
-function importJSON(e) {
-  const file = e.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = (ev) => {
-    try {
-      const parsed = JSON.parse(ev.target.result);
-      const imported = parsed.records || parsed; // 구버전 호환
-      if (!Array.isArray(imported)) throw new Error('올바른 백업 파일이 아닙니다');
-
-      // 기존 id/seqno 기준으로 중복 병합
-      const existingIds  = new Set(records.map(r => r.id));
-      const existingSeqs = new Map(records.map(r => [String(r.seqno), r]));
-
-      let addedCount   = 0;
-      let updatedCount = 0;
-
-      imported.forEach(r => {
-        if (existingIds.has(r.id)) {
-          // 동일 id → 최신 데이터로 덮어쓰기
-          const idx = records.findIndex(x => x.id === r.id);
-          records[idx] = r;
-          updatedCount++;
-        } else if (existingSeqs.has(String(r.seqno))) {
-          // 동일 연번 → 덮어쓰기
-          const idx = records.findIndex(x => String(x.seqno) === String(r.seqno));
-          records[idx] = r;
-          updatedCount++;
-        } else {
-          records.push(r);
-          addedCount++;
-        }
+function importJSON(e){
+  const file=e.target.files[0]; if(!file) return;
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    try{
+      const parsed=JSON.parse(ev.target.result);
+      const imported=parsed.records||parsed;
+      if(!Array.isArray(imported)) throw new Error('올바른 백업 파일이 아닙니다');
+      const existingIds=new Set(records.map(r=>r.id));
+      const existingSeqs=new Map(records.map(r=>[String(r.seqno),r]));
+      let addedCount=0, updatedCount=0;
+      imported.forEach(r=>{
+        if(existingIds.has(r.id)){ const idx=records.findIndex(x=>x.id===r.id); records[idx]=r; updatedCount++; }
+        else if(existingSeqs.has(String(r.seqno))){ const idx=records.findIndex(x=>String(x.seqno)===String(r.seqno)); records[idx]=r; updatedCount++; }
+        else{ records.push(r); addedCount++; }
       });
-
-      // 연번순 정렬
-      records.sort((a, b) => (parseInt(a.seqno)||0) - (parseInt(b.seqno)||0));
-
-      if (saveRecords()) {
-        renderList();
-        updateBadge();
-        showToast(`📂 불러오기 완료! 신규 ${addedCount}건 추가, ${updatedCount}건 업데이트`);
-        // Firebase 전체 동기화
-        if (window.fbSyncAll) window.fbSyncAll(records);
-      } else {
-        showToast('❌ 저장 실패 — 용량 초과일 수 있어요 (사진 확인)');
-      }
-    } catch(err) {
-      showToast('❌ 파일 오류: ' + err.message);
-    }
-    e.target.value = ''; // 같은 파일 재선택 가능하게
+      records.sort((a,b)=>(parseInt(a.seqno)||0)-(parseInt(b.seqno)||0));
+      if(saveRecords()){ renderList(); updateBadge(); showToast(`📂 신규 ${addedCount}건 추가, ${updatedCount}건 업데이트`); if(window.fbSyncAll) window.fbSyncAll(records); }
+      else showToast('❌ 저장 실패 — 용량 초과');
+    }catch(err){ showToast('❌ 파일 오류: '+err.message); }
+    e.target.value='';
   };
   reader.readAsText(file);
 }
 
-/* ═══════════════════════════════
-   모바일 호환 엑셀 다운로드 헬퍼
-═══════════════════════════════ */
-async function downloadExcel(wb, fileName, cellStyles) {
-  const opt = { bookType: 'xlsx', type: 'array' };
-  if (cellStyles) opt.cellStyles = true;
-  const wbOut = XLSX.write(wb, opt);
-  const blob = new Blob([wbOut], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-
-  // PC Chrome — 저장 경로 선택
-  if (window.showSaveFilePicker) {
-    try {
-      const handle = await window.showSaveFilePicker({
-        suggestedName: fileName,
-        types: [{ description: 'Excel 파일', accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] } }]
-      });
-      const writable = await handle.createWritable();
-      await writable.write(blob);
-      await writable.close();
-      return true;
-    } catch(err) {
-      if (err.name === 'AbortError') { showToast('❌ 저장을 취소했어요'); return false; }
-      // 오류 시 fallback
-    }
-  }
-
-  // 모바일 / fallback — a태그 클릭 방식
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = fileName;
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(() => { URL.revokeObjectURL(url); document.body.removeChild(a); }, 1500);
-  return true;
+/* ── 유틸 ── */
+function updateBadge(){ document.getElementById('recordCount').textContent=`${records.length}건`; }
+function showTab(tab,btn){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('page-'+tab).classList.add('active');
+  btn.classList.add('active');
+  if(tab==='list') renderList();
+  if(tab==='map')  renderMapTab();
 }
+function showToast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('on'); setTimeout(()=>t.classList.remove('on'),2800); }
 
 init();
 </script>
