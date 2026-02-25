@@ -6,6 +6,7 @@
 <title>밸브류 관리대장 v1.1</title>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=3ddc7a06a7a28f64a2db46512879c789&libraries=services"></script>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
 import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, writeBatch }
@@ -57,7 +58,6 @@ if (db) {
           ? window._records.findIndex(r => String(r.id) === String(fb.id))
           : -1;
         if (idx >= 0) {
-          // 로컬 사진(base64) 유지, 클라우드 URL은 덮어쓰기
           const localPhotos = window._records[idx].photos;
           window._records[idx] = {
             ...fb,
@@ -82,24 +82,18 @@ if (db) {
   );
 }
 
-/* ── Storage 사진 업로드 ──
-   photos[2] → "{seqno}-3"
-   photos[3] → "{seqno}-4"
-   index 0,1은 내부작업 예정이므로 업로드 안 함
-*/
 window.fbUploadPhotos = async function(rec) {
   if (!storage) return;
-  const photoMap = { 2: '3', 3: '4' }; // photos 인덱스 → 파일명 suffix
+  const photoMap = { 2: '3', 3: '4' };
   const urlUpdates = {};
 
   for (const [idx, suffix] of Object.entries(photoMap)) {
     const dataUrl = rec.photos[parseInt(idx)];
-    if (!dataUrl || dataUrl.startsWith('http')) continue; // 이미 URL이면 스킵
+    if (!dataUrl || dataUrl.startsWith('http')) continue;
 
     try {
       const fileName = `${rec.seqno}-${suffix}`;
       const storageRef = ref(storage, `photos/${fileName}`);
-      // base64 data URL → Storage 업로드
       await uploadString(storageRef, dataUrl, 'data_url');
       const downloadUrl = await getDownloadURL(storageRef);
       urlUpdates[parseInt(idx)] = downloadUrl;
@@ -109,7 +103,6 @@ window.fbUploadPhotos = async function(rec) {
     }
   }
 
-  // 업로드된 사진 URL을 records에 반영
   if (Object.keys(urlUpdates).length > 0) {
     const recIdx = window._records
       ? window._records.findIndex(r => String(r.id) === String(rec.id))
@@ -127,23 +120,16 @@ window.fbUploadPhotos = async function(rec) {
   return {};
 };
 
-/* ── Firestore 저장 (사진 URL 포함, base64 제외) ── */
 window.fbSaveRecord = async function(rec) {
   if (!db) return;
   try {
     setFbStatus('🔄', '#90caf9');
-
-    // 1) 사진 Storage 업로드 → URL 받기
     const urlUpdates = await window.fbUploadPhotos(rec);
-
-    // 2) Firestore에 저장할 데이터 구성
-    //    photos 배열: base64는 제거, Storage URL만 포함
     const cleanPhotos = (rec.photos || [null,null,null,null]).map((p, i) => {
-      if (urlUpdates[i]) return urlUpdates[i];           // 새로 업로드된 URL
-      if (p && p.startsWith('http')) return p;           // 기존 URL
-      return null;                                        // base64 또는 null → null로
+      if (urlUpdates[i]) return urlUpdates[i];
+      if (p && p.startsWith('http')) return p;
+      return null;
     });
-
     const data = { ...rec, photos: cleanPhotos };
     await setDoc(doc(db, 'valve-records', String(rec.id)), data);
     setFbStatus('☁️', '#a5d6a7');
@@ -154,19 +140,16 @@ window.fbSaveRecord = async function(rec) {
   }
 };
 
-/* ── Firestore + Storage 삭제 ── */
 window.fbDeleteRecord = async function(rec) {
   if (!db) return;
   try {
-    // Storage 사진 삭제
     if (storage) {
       const seqno = rec.seqno;
       for (const suffix of ['3','4']) {
         try {
           const r = ref(storage, `photos/${seqno}-${suffix}`);
           await deleteObject(r);
-          console.log(`🗑 Storage 삭제: ${seqno}-${suffix}`);
-        } catch(e) { /* 파일 없으면 무시 */ }
+        } catch(e) {}
       }
     }
     await deleteDoc(doc(db, 'valve-records', String(rec.id)));
@@ -177,13 +160,11 @@ window.fbDeleteRecord = async function(rec) {
   }
 };
 
-/* ── 전체 동기화 ── */
 window.fbSyncAll = async function(recs) {
   if (!db) return;
   try {
     const batch = writeBatch(db);
     for (const r of recs) {
-      // 각 레코드 사진 업로드
       const urlUpdates = await window.fbUploadPhotos(r);
       const cleanPhotos = (r.photos || [null,null,null,null]).map((p, i) => {
         if (urlUpdates[i]) return urlUpdates[i];
@@ -194,7 +175,6 @@ window.fbSyncAll = async function(recs) {
     }
     await batch.commit();
     setFbStatus('☁️', '#a5d6a7');
-    console.log('✅ 전체 동기화 완료');
   } catch(e) {
     console.warn('전체 동기화 오류:', e);
     setFbStatus('⚠️', '#ffb74d');
@@ -281,13 +261,10 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 .ph-del{position:absolute;top:4px;right:4px;z-index:6;background:rgba(198,40,40,.88);border:none;border-radius:50%;width:22px;height:22px;color:#fff;font-size:11px;cursor:pointer;display:none;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(0,0,0,.3)}
 .photo-cell.hp .ph-del{display:flex}
 .photo-cell.hp .ph-ph{display:none}
-
-/* 사진 업로드 진행 표시 */
 .photo-uploading{position:absolute;inset:0;background:rgba(13,49,112,.6);z-index:7;display:none;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:#fff;font-size:11px;font-weight:700}
 .photo-uploading.on{display:flex}
 .upload-spinner{width:24px;height:24px;border:3px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
-
 .ph-btns{display:flex;gap:6px;margin-top:8px;justify-content:center}
 .ph-choice{border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--blue-dark);font-family:'Noto Sans KR',sans-serif;font-size:10px;font-weight:700;padding:6px 10px;cursor:pointer;transition:background .15s,border-color .15s}
 .ph-choice:active{background:var(--blue-light);border-color:var(--blue)}
@@ -607,7 +584,6 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
   </td>
 </tr>
 <tr>
-  <!-- 원경: 조사연번-3 -->
   <td colspan="3" style="padding:0;border-right:1px solid #cdd8e8">
     <div class="photo-title">📷 사진대지 (원경)</div>
     <div class="photo-cell" id="pc2">
@@ -626,7 +602,6 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
       <div class="photo-uploading" id="pu2"><div class="upload-spinner"></div>업로드 중...</div>
     </div>
   </td>
-  <!-- 근경: 조사연번-4 -->
   <td colspan="3" style="padding:0">
     <div class="photo-title">📷 사진대지 (근경)</div>
     <div class="photo-cell" id="pc3">
@@ -724,7 +699,6 @@ const VFORM_OPTIONS = {
   '공기밸브':['단구','쌍구','급속'],'감압밸브':[],'역지밸브':[],
   '이토밸브':[],'기타':[],'':['지상식','지하식','단구','쌍구','급속','S.V','G.V','H.V']
 };
-// 사진 용량 제한 없음 — Firebase Storage(5GB)에 직접 업로드
 
 let photos=[null,null,null,null], gpsData=null, selOCVal='', selValveStateVal='', records=[];
 Object.defineProperty(window,'_records',{ get(){return records;}, set(v){records=v;} });
@@ -809,31 +783,38 @@ function getGPS(){
   if(navigator.permissions){ navigator.permissions.query({name:'geolocation'}).then(r=>{ if(r.state==='denied'){dot.classList.remove('on');val.textContent='권한 거부됨';btn.textContent='📍 위치받기';btn.disabled=false;showGuide('위치 권한이 거부되어 있어요. 설정에서 허용 후 새로고침해 주세요.');} else doReq(); }).catch(()=>doReq()); } else doReq();
 }
 function showGuide(msg){ const g=document.getElementById('gpsGuide'); document.getElementById('gpsGuideMsg').innerHTML=msg.replace(/\n/g,'<br>'); g.classList.add('show'); g.scrollIntoView({behavior:'smooth',block:'nearest'}); }
+
+/* ── 카카오맵 역지오코딩 ── */
 async function reverseGeocode(lat, lng) {
-  const VWORLD_KEY = '53D67195-1F29-32E8-B78A-3BE69020AF6E';
   try {
-    const url = `https://api.vworld.kr/req/address?service=address&request=getAddress&version=2.0&crs=epsg:4326&point=${lng},${lat}&format=json&type=both&zipcode=true&simple=false&key=${VWORLD_KEY}`;
-    const res  = await fetch(url);
-    const data = await res.json();
-
-    if (data?.response?.status === 'OK') {
-      const results = data.response.result;
-      // 도로명 주소 우선, 없으면 지번 주소
-      const road   = results?.find(r => r.type === 'road');
-      const parcel = results?.find(r => r.type === 'parcel');
-      const addr   = road?.text || parcel?.text || '';
-
-      if (addr) {
-        const addrEl = document.getElementById('f-addr');
-        if (!addrEl.value) addrEl.value = addr;
-        else addrEl.placeholder = addr;
-        gpsData.addr = addr;
-        showToast('📮 GPS 주소 자동입력 완료!');
-        return;
-      }
+    if (typeof kakao === 'undefined' || !kakao.maps || !kakao.maps.services) {
+      showToast('⚠️ 카카오맵 로드 실패 — 좌표만 저장됩니다');
+      return;
     }
-  } catch(e) { console.warn('Vworld geocode fail', e); }
-  showToast('⚠️ 주소 변환 실패 — 좌표만 저장됩니다');
+    const geocoder = new kakao.maps.services.Geocoder();
+    geocoder.coord2Address(lng, lat, function(result, status) {
+      if (status === kakao.maps.services.Status.OK && result.length > 0) {
+        // 도로명 주소 우선, 없으면 지번 주소
+        const road   = result[0].road_address;
+        const parcel = result[0].address;
+        const addr   = (road ? road.address_name : '') || (parcel ? parcel.address_name : '');
+        if (addr) {
+          const addrEl = document.getElementById('f-addr');
+          if (!addrEl.value) addrEl.value = addr;
+          else addrEl.placeholder = addr;
+          gpsData.addr = addr;
+          showToast('📮 GPS 주소 자동입력 완료!');
+        } else {
+          showToast('⚠️ 주소 변환 실패 — 좌표만 저장됩니다');
+        }
+      } else {
+        showToast('⚠️ 주소 변환 실패 — 좌표만 저장됩니다');
+      }
+    });
+  } catch(e) {
+    console.warn('Kakao geocode fail', e);
+    showToast('⚠️ 주소 변환 실패 — 좌표만 저장됩니다');
+  }
 }
 
 /* ── 갤러리 ── */
@@ -858,11 +839,10 @@ function triggerPhoto(e,inputId){ e.preventDefault(); e.stopPropagation(); const
 /* ── 사진 처리 ── */
 function formatBytes(b){ if(b<1024) return b+'B'; if(b<1024*1024) return (b/1024).toFixed(0)+'KB'; return (b/1024/1024).toFixed(1)+'MB'; }
 
-const PHOTO_MAX_BYTES  = 25 * 1024 * 1024; // 선택 가능한 원본 최대 크기
-const PHOTO_MAX_WIDTH  = 1920;              // 리사이즈 최대 가로
-const PHOTO_QUALITY    = 0.85;              // JPEG 압축 품질 (85%)
+const PHOTO_MAX_BYTES  = 25 * 1024 * 1024;
+const PHOTO_MAX_WIDTH  = 1920;
+const PHOTO_QUALITY    = 0.85;
 
-/* 압축 함수 — Canvas 리사이즈 + JPEG 85% */
 function compressImage(dataUrl) {
   return new Promise(resolve => {
     const img = new Image();
@@ -883,27 +863,20 @@ function compressImage(dataUrl) {
 
 function handlePhoto(e, i) {
   const f = e.target.files[0]; if (!f) return;
-
-  // 25MB 초과 원본은 차단
   if (f.size > PHOTO_MAX_BYTES) {
     showToast(`⚠️ 사진이 너무 커요! 최대 25MB (현재 ${formatBytes(f.size)})`);
     e.target.value = ''; return;
   }
-
-  // 미리보기에 압축 중 표시
   const sizeEl = document.getElementById('ps'+i);
   sizeEl.textContent = '압축 중...';
   document.getElementById('pc'+i).classList.add('hp');
-
   const reader = new FileReader();
   reader.onload = async ev => {
     const compressed = await compressImage(ev.target.result);
     const bytes = compressed.length * 0.75;
     const savedPct = Math.round((1 - bytes / f.size) * 100);
-
     photos[i] = compressed;
     document.getElementById('pi'+i).src = compressed;
-    // 압축 결과 표시: "1.2MB → 320KB (73%↓)"
     sizeEl.textContent = `${formatBytes(f.size)} → ${formatBytes(bytes)} (${savedPct}%↓)`;
     sizeEl.classList.remove('warn');
     checkStorageSize();
@@ -923,7 +896,6 @@ function delPhoto(e, i) {
 }
 
 function checkStorageSize() {
-  // Firebase Storage 사용으로 용량 제한 없음 — 경고 표시 안 함
   document.getElementById('storageWarn').classList.remove('show');
 }
 
@@ -952,20 +924,13 @@ async function saveRecord(){
     notes:g('f-notes'), photos:[...photos]
   };
 
-  // 저장 버튼 비활성화
   const btn=document.getElementById('saveBtn');
   btn.disabled=true; btn.textContent='⏳ 저장 중...';
-
-  // 사진 업로드 진행 표시
   [2,3].forEach(i=>{ if(photos[i]) document.getElementById('pu'+i).classList.add('on'); });
 
   records.unshift(rec);
   if(saveRecords()){
-    // Firebase 저장 (Storage 사진 업로드 포함)
-    if(window.fbSaveRecord){
-      await window.fbSaveRecord(rec);
-    }
-    // 업로드 후 로컬 사진 URL 업데이트
+    if(window.fbSaveRecord){ await window.fbSaveRecord(rec); }
     [2,3].forEach(i=>{ document.getElementById('pu'+i).classList.remove('on'); });
     showToast('✅ 저장 완료!  #'+rec.seqno);
     btn.disabled=false; btn.textContent='💾 관리대장 저장';
@@ -1182,43 +1147,6 @@ async function exportExcel(){
   XLSX.utils.book_append_sheet(wb, ws, '조서');
   const ok=await downloadExcel(wb,`밸브류관리대장_${new Date().toISOString().split('T')[0]}.xlsx`);
   if(ok) showToast('📊 엑셀 저장 완료!');
-}
-
-async function exportExcelTemplate(){
-  if(!records.length){ showToast('내보낼 기록이 없습니다'); return; }
-  return new Promise(resolve=>{
-    const inp=document.createElement('input'); inp.type='file'; inp.accept='.xlsx,.xlsm,.xls';
-    inp.onchange=async(e)=>{
-      const file=e.target.files[0]; if(!file) return;
-      showToast('📂 파일 읽는 중...');
-      const reader=new FileReader();
-      reader.onload=async(ev)=>{
-        try{
-          const wb=XLSX.read(ev.target.result,{type:'array'});
-          const sheetName=wb.SheetNames.find(n=>n==='조서')||wb.SheetNames[0];
-          const ws=wb.Sheets[sheetName];
-          const range=XLSX.utils.decode_range(ws['!ref']||'A1');
-          const lastRow=range.e.r;
-          const sorted=[...records].sort((a,b)=>(parseInt(a.seqno)||0)-(parseInt(b.seqno)||0));
-          const existingSeqnos=new Set();
-          for(let r=1;r<=lastRow;r++){ const cell=ws[XLSX.utils.encode_cell({r,c:0})]; if(cell&&cell.v!==undefined) existingSeqnos.add(String(cell.v)); }
-          let addedCount=0, writeRow=lastRow+1;
-          sorted.forEach(r=>{
-            let targetRow=writeRow;
-            if(existingSeqnos.has(String(r.seqno))){ for(let row=1;row<=lastRow;row++){ const c=ws[XLSX.utils.encode_cell({r:row,c:0})]; if(c&&String(c.v)===String(r.seqno)){targetRow=row;break;} } } else writeRow++;
-            const rowData=[r.seqno,'',r.mgmtno,r.addr,r.vtype,r.bigblock,r.midblock,r.smallblock,r.vform,r.drive,r.maker,r.dia,r.material,r.installyear,r.rotation,r.totalrot,r.openclosed,r.protbox,r.vroomSize,r.smcover,r.manhole,r.depth,r.date,(r.notes||'')+(r.vremark?(r.notes?' / ':'')+r.vremark:'')+(r.smallmemo?(r.notes||r.vremark?' / ':'')+r.smallmemo:'')];
-            rowData.forEach((val,c)=>{ const addr=XLSX.utils.encode_cell({r:targetRow,c}); ws[addr]={v:val===null||val===undefined?'':val,t:typeof val==='number'?'n':'s'}; });
-            addedCount++;
-          });
-          ws['!ref']=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:Math.max(lastRow,writeRow-1),c:range.e.c}});
-          const ok=await downloadExcel(wb,`밸브류관리대장_조서_${new Date().toISOString().split('T')[0]}.xlsx`);
-          if(ok) showToast(`✅ 조서 저장 완료! ${addedCount}건 반영`);
-        }catch(err){ showToast('❌ 파일 오류: '+err.message); }
-      };
-      reader.readAsArrayBuffer(file);
-    };
-    inp.click();
-  });
 }
 
 async function downloadExcel(wb, fileName){
