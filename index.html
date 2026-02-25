@@ -890,7 +890,7 @@ const MAKERS = {
   '지수밸브':['신진정공'],'이토밸브':[],'기타':[],'':[]
 };
 const VFORM_OPTIONS = {
-  '제수밸브':['S.V','G.V','B.V','부단수밸브'],'소화전':['지상식','지하식'],
+  '제수밸브':['S.V','G.V','B.V','STS','부단수밸브'],'소화전':['지상식','지하식'],
   '공기밸브':['단구','쌍구','급속'],'감압밸브':[],'역지밸브':[],
   '지수밸브':['H.V'],'이토밸브':[],'기타':[],'':['지상식','지하식','단구','쌍구','급속','S.V','G.V','H.V']
 };
@@ -924,6 +924,47 @@ function onVtypeChange(){
   updateDiaOptions(vt);
   autoFillRotation();
   applyVtypeBlank(vt === '');
+  applyFireHydrant(vt === '소화전');
+}
+
+/* 소화전 선택 시: 총회전수·현회전수 비활성 + 개폐여부 CLOSE 고정 */
+function applyFireHydrant(isHydrant){
+  const totalrot = document.getElementById('f-totalrot');
+  const currot   = document.getElementById('f-currot');
+
+  if(isHydrant){
+    /* 총회전수·현회전수 비활성 */
+    [totalrot, currot].forEach(el=>{
+      if(!el) return;
+      el.value = '';
+      el.disabled = true;
+      el.style.background = '#f0f0f0';
+      el.style.color = '#aaa';
+      el.style.cursor = 'not-allowed';
+    });
+    /* 개폐여부 CLOSE 자동 설정 */
+    selOCVal = 'CLOSE';
+    document.getElementById('oc-open').classList.remove('on');
+    document.getElementById('oc-close').classList.add('on');
+    document.getElementById('oc-open').disabled  = true;
+    document.getElementById('oc-close').disabled = true;
+    document.getElementById('oc-open').style.opacity  = '0.4';
+    document.getElementById('oc-close').style.cursor  = 'not-allowed';
+  } else {
+    /* 복원 */
+    [totalrot, currot].forEach(el=>{
+      if(!el) return;
+      el.disabled = false;
+      el.style.background = '';
+      el.style.color = '';
+      el.style.cursor = '';
+    });
+    /* 개폐여부 버튼 복원 (값은 유지) */
+    document.getElementById('oc-open').disabled  = false;
+    document.getElementById('oc-close').disabled = false;
+    document.getElementById('oc-open').style.opacity  = '';
+    document.getElementById('oc-close').style.cursor  = '';
+  }
 }
 
 function applyVtypeBlank(blank){
@@ -1433,6 +1474,8 @@ function resetForm(){
     el.classList.remove('on');
   });
   selOCVal=''; ['oc-open','oc-close','oc-possible','oc-impossible'].forEach(id=>document.getElementById(id).classList.remove('on'));
+  /* 소화전 해제 복원 */
+  applyFireHydrant(false);
   applyVtypeBlank(true);
   selValveStateVal=''; applyValveSectionDisabled(false); applyVremarkDisabled(true);
   document.getElementById('f-manhole').disabled=false;
