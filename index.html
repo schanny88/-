@@ -746,7 +746,7 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
   <div class="list-pg">
     <!-- 모바일 저장 경로 안내 배너 -->
     <div id="mobileNoticeBanner" style="display:none">
-      <span class="notice-text">📱 모바일에서 엑셀·사진 저장 시 파일은 <b>기본 다운로드 폴더</b>에 저장됩니다.</span>
+      <span class="notice-text">💻 엑셀·사진 다운로드는 <b>PC에서만 이용 가능</b>합니다. 모바일은 데이터 입력 전용으로 사용해 주세요.</span>
       <button class="notice-close" onclick="closeMobileNotice()" title="닫기">✕</button>
     </div>
     <div class="list-stats">
@@ -817,8 +817,13 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 <div class="worker-modal-ov" id="workerModalOv">
   <div class="worker-modal">
     <h2>👷 작업자 확인</h2>
-    <p>여러 명이 동시에 작업할 수 있어요.<br>이름을 입력하면 내 기록을 따로 볼 수 있어요.</p>
-    <input type="text" id="workerNameInput" placeholder="이름 또는 팀명 입력" maxlength="10" oninput="document.getElementById('workerStartBtn').disabled=!this.value.trim()" onkeydown="if(event.key==='Enter')startWorkerSession()">
+    <p>이름을 입력하면 내 기록을 따로 볼 수 있어요.</p>
+    <input type="text" id="workerNameInput" placeholder="이름 또는 팀명 입력" maxlength="10"
+      oninput="onWorkerNameInput(this.value)"
+      onkeydown="if(event.key==='Enter')startWorkerSession()">
+    <input type="password" id="workerPwInput" placeholder="관리자 비밀번호 입력"
+      style="width:100%;box-sizing:border-box;border:2px solid #c5d8f0;border-radius:10px;padding:12px 14px;font-family:'Noto Sans KR',sans-serif;font-size:14px;color:var(--blue-dark);outline:none;text-align:center;margin-bottom:14px;display:none"
+      onkeydown="if(event.key==='Enter')startWorkerSession()">
     <button class="worker-modal-btn" id="workerStartBtn" disabled onclick="startWorkerSession()">시작하기</button>
   </div>
 </div>
@@ -959,22 +964,51 @@ const VFORM_OPTIONS = {
 let photos=[null,null,null,null], gpsData=null, selOCVal='', selValveStateVal='', records=[];
 let currentWorker = '';   /* 현재 작업자 이름 */
 let listTabMode   = 'mine'; /* 'mine' | 'all' */
+let isAdmin       = false;  /* 관리자 여부 */
+const ADMIN_PW    = '39448837'; /* 관리자 비밀번호 */
 
 /* ── 작업자 세션 ── */
+function onWorkerNameInput(val){
+  document.getElementById('workerStartBtn').disabled = !val.trim();
+  const pwWrap = document.getElementById('workerPwInput');
+  if(val.trim() === '손석찬'){
+    pwWrap.style.display = 'block';
+    setTimeout(()=>pwWrap.focus(), 50);
+  } else {
+    pwWrap.style.display = 'none';
+    pwWrap.value = '';
+  }
+}
 function startWorkerSession(){
   const name = document.getElementById('workerNameInput').value.trim();
   if(!name) return;
+  const pw = document.getElementById('workerPwInput').value;
+  isAdmin = (pw === ADMIN_PW);
+  if(pw && !isAdmin){ showToast('❌ 비밀번호가 틀렸습니다'); return; }
   currentWorker = name;
   localStorage.setItem('valve-worker', name);
-  document.getElementById('workerBadgeName').textContent = name;
+  localStorage.setItem('valve-admin', isAdmin ? '1' : '0');
+  document.getElementById('workerBadgeName').textContent = isAdmin ? '👑 ' + name : name;
   document.getElementById('workerModalOv').style.display = 'none';
+  applyRoleUI();
   renderList();
 }
 function changeWorker(){
   document.getElementById('workerNameInput').value = currentWorker;
+  document.getElementById('workerPwInput').value = '';
   document.getElementById('workerStartBtn').disabled = false;
   document.getElementById('workerModalOv').style.display = 'flex';
   setTimeout(()=>document.getElementById('workerNameInput').focus(), 100);
+}
+function applyRoleUI(){
+  /* 전체기록 탭: 관리자만 표시 */
+  const tabAll = document.getElementById('listTabAll');
+  if(tabAll) tabAll.style.display = isAdmin ? '' : 'none';
+  /* 일괄삭제 버튼: 관리자만 표시 */
+  const delAllBtn = document.querySelector('[onclick="deleteAllRecords()"]');
+  if(delAllBtn) delAllBtn.style.display = isAdmin ? '' : 'none';
+  /* 일반 사용자는 mine 탭 고정 */
+  if(!isAdmin){ listTabMode = 'mine'; }
 }
 function setListTab(mode){
   listTabMode = mode;
@@ -997,8 +1031,10 @@ function init(){
   const saved = localStorage.getItem('valve-worker');
   if(saved){
     currentWorker = saved;
-    document.getElementById('workerBadgeName').textContent = saved;
+    isAdmin = localStorage.getItem('valve-admin') === '1';
+    document.getElementById('workerBadgeName').textContent = isAdmin ? '👑 ' + saved : saved;
     document.getElementById('workerModalOv').style.display = 'none';
+    applyRoleUI();
   } else {
     document.getElementById('workerModalOv').style.display = 'flex';
     setTimeout(()=>document.getElementById('workerNameInput').focus(), 300);
@@ -1676,6 +1712,11 @@ async function deleteAllRecords() {
 
 async function deleteSelected() {
   if (!selectedIds.size) { showToast('삭제할 항목을 선택하세요'); return; }
+  /* 일반 사용자: 본인 기록만 삭제 가능 */
+  if(!isAdmin){
+    const forbidden = records.filter(r => selectedIds.has(r.id) && r.author !== currentWorker);
+    if(forbidden.length){ showToast('❌ 본인 기록만 삭제할 수 있습니다'); return; }
+  }
   if (!confirm(`선택한 ${selectedIds.size}건을 삭제할까요?`)) return;
   const toDelete = records.filter(r => selectedIds.has(r.id));
   /* 로컬에서 먼저 제거 */
@@ -2065,6 +2106,17 @@ function importJSON(e){
 function initMobileNotice(){
   const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
   if(!isMobile) return;
+  /* 모바일: 엑셀·사진저장 버튼 숨기기 */
+  const hideIds = ['photoDownBtn'];
+  hideIds.forEach(id => {
+    const el = document.getElementById(id);
+    if(el) el.style.display = 'none';
+  });
+  /* exportExcel 버튼은 class로 찾아서 숨기기 */
+  document.querySelectorAll('.exp-btn').forEach(btn => {
+    if(btn.getAttribute('onclick') === 'exportExcel()') btn.style.display = 'none';
+  });
+  /* 배너 표시 */
   const closed = localStorage.getItem('mobileNoticeClosed');
   if(closed) return;
   const el = document.getElementById('mobileNoticeBanner');
