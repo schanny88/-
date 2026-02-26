@@ -186,6 +186,19 @@ window.fbSyncAll = async function(recs) {
 console.log('✅ Firebase 모듈 로드 완료');
 </script>
 <style>
+/* ── 모바일 저장 안내 배너 ── */
+#mobileNoticeBanner{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  background:linear-gradient(135deg,#e3f2fd,#bbdefb);
+  border:1px solid #90caf9;border-radius:10px;
+  padding:10px 14px;margin-bottom:10px;
+  font-size:13px;color:#0d3170;font-weight:500;
+}
+#mobileNoticeBanner .notice-text{display:flex;align-items:center;gap:7px;}
+#mobileNoticeBanner .notice-close{
+  background:none;border:none;cursor:pointer;
+  font-size:16px;color:#546e7a;line-height:1;padding:2px 4px;flex-shrink:0;
+}
 :root{
   --bg:#f0f4f8;--white:#fff;--blue:#1e5fad;--blue-dark:#0d3170;--blue-mid:#1a4fa0;
   --blue-light:#e8f0fe;--blue-pale:#f0f5ff;--border:#b0bec5;--bdark:#78909c;
@@ -731,6 +744,11 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 <!-- 목록 -->
 <div class="page" id="page-list">
   <div class="list-pg">
+    <!-- 모바일 저장 경로 안내 배너 -->
+    <div id="mobileNoticeBanner" style="display:none">
+      <span class="notice-text">📱 모바일에서 엑셀·사진 저장 시 파일은 <b>기본 다운로드 폴더</b>에 저장됩니다.</span>
+      <button class="notice-close" onclick="closeMobileNotice()" title="닫기">✕</button>
+    </div>
     <div class="list-stats">
       <div class="stat-chip"><div class="stat-num" id="statTotal">0</div><div class="stat-lbl">전체</div></div>
       <div class="stat-chip"><div class="stat-num" id="statOpen" style="color:var(--green)">0</div><div class="stat-lbl">OPEN</div></div>
@@ -970,6 +988,7 @@ Object.defineProperty(window,'_records',{ get(){return records;}, set(v){records
 function init(){
   document.getElementById('f-date').value = new Date().toISOString().split('T')[0];
   loadRecords(); updateBadge(); updateSeqPreview(); updateVformOptions('');
+  initMobileNotice();
   applyVtypeBlank(true);
   applyVremarkDisabled(true);
   document.getElementById('mOv').addEventListener('click',e=>{ if(e.target===document.getElementById('mOv')) closeModal(); });
@@ -1840,6 +1859,29 @@ async function downloadAllPhotos(){
   btn.textContent = '⏳ ZIP 생성 중...';
   const zipBlob = await zip.generateAsync({ type: 'blob' });
   const fileName = '밸브사진_' + new Date().toISOString().split('T')[0] + '.zip';
+
+  if (window.showSaveFilePicker) {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: fileName,
+        types: [{ description: 'ZIP 파일', accept: { 'application/zip': ['.zip'] } }]
+      });
+      const writable = await handle.createWritable();
+      await writable.write(zipBlob);
+      await writable.close();
+      showToast('📷 사진 ' + done + '장 ZIP 저장 완료!');
+      btn.disabled = false; btn.textContent = '📷 사진저장';
+      return;
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        showToast('❌ 저장을 취소했어요');
+        btn.disabled = false; btn.textContent = '📷 사진저장';
+        return;
+      }
+    }
+  }
+
+  /* fallback: 기본 다운로드 폴더 (모바일 / Firefox 등) */
   const a = document.createElement('a');
   a.href = URL.createObjectURL(zipBlob);
   a.download = fileName;
@@ -2017,6 +2059,21 @@ function importJSON(e){
     e.target.value='';
   };
   reader.readAsText(file);
+}
+
+/* ── 모바일 저장 안내 배너 ── */
+function initMobileNotice(){
+  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  if(!isMobile) return;
+  const closed = localStorage.getItem('mobileNoticeClosed');
+  if(closed) return;
+  const el = document.getElementById('mobileNoticeBanner');
+  if(el) el.style.display = 'flex';
+}
+function closeMobileNotice(){
+  const el = document.getElementById('mobileNoticeBanner');
+  if(el) el.style.display = 'none';
+  localStorage.setItem('mobileNoticeClosed', '1');
 }
 
 /* ── 유틸 ── */
