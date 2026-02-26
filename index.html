@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>밸브류 관리대장 v1.2</title>
+<title>밸브류 관리대장 v1.3</title>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -51,33 +51,36 @@ if (db) {
   onSnapshot(collection(db, 'valve-records'),
     (snapshot) => {
       setFbStatus('☁️', '#a5d6a7');
-      if (!snapshot || snapshot.empty) return;
-      const fbRecords = [];
-      snapshot.forEach(d => fbRecords.push(d.data()));
+      if (!snapshot || !window._records) return;
 
-      fbRecords.forEach(fb => {
-        const idx = window._records
-          ? window._records.findIndex(r => String(r.id) === String(fb.id))
-          : -1;
-        /* 삭제 진행 중인 레코드는 복원하지 않음 */
-        if (window._deletingIds && window._deletingIds.has(String(fb.id))) return;
-        if (idx >= 0) {
-          const localPhotos = window._records[idx].photos;
-          window._records[idx] = {
-            ...fb,
-            photos: localPhotos || fb.photos || [null,null,null,null]
-          };
-        } else if (window._records) {
-          window._records.push(fb);
+      snapshot.docChanges().forEach(change => {
+        const fb = change.doc.data();
+        const idStr = String(fb.id);
+        const idx = window._records.findIndex(r => String(r.id) === idStr);
+
+        if (change.type === 'added' || change.type === 'modified') {
+          /* 삭제 진행 중인 레코드는 무시 */
+          if (window._deletingIds && window._deletingIds.has(idStr)) return;
+          if (idx >= 0) {
+            const localPhotos = window._records[idx].photos;
+            window._records[idx] = {
+              ...fb,
+              photos: localPhotos || fb.photos || [null,null,null,null]
+            };
+          } else {
+            window._records.push(fb);
+          }
+        } else if (change.type === 'removed') {
+          /* Firebase에서 삭제된 경우 로컬에서도 제거 */
+          if (idx >= 0) window._records.splice(idx, 1);
+          if (window._deletingIds) window._deletingIds.delete(idStr);
         }
       });
 
-      if (window._records) {
-        window._records.sort((a,b) => (parseInt(a.seqno)||0)-(parseInt(b.seqno)||0));
-        try { localStorage.setItem('valve-v7', JSON.stringify(window._records)); } catch(e) {}
-        if (window.renderList)  window.renderList();
-        if (window.updateBadge) window.updateBadge();
-      }
+      window._records.sort((a,b) => (parseInt(a.seqno)||0)-(parseInt(b.seqno)||0));
+      try { localStorage.setItem('valve-v7', JSON.stringify(window._records)); } catch(e) {}
+      if (window.renderList)  window.renderList();
+      if (window.updateBadge) window.updateBadge();
     },
     (err) => {
       console.warn('Firestore 오류:', err);
@@ -358,6 +361,10 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 .r-card{background:#fff;border:1px solid #dde4ef;border-radius:12px;margin-bottom:10px;overflow:hidden;cursor:pointer;box-shadow:var(--shadow);transition:transform .15s,box-shadow .15s}
 .r-card:active{transform:scale(.99);box-shadow:0 0 0 3px rgba(30,95,173,.15)}
 .r-card-selected{box-shadow:0 0 0 3px rgba(198,40,40,.5)!important;border-color:#ef9a9a!important}
+.r-card-checkwrap{position:relative;display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;flex-shrink:0}
+.r-card-checkwrap input[type=checkbox]{width:22px;height:22px;cursor:pointer;accent-color:#c62828;flex-shrink:0;margin:0}
+.r-card-checkmark{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:14px;font-weight:900;color:#111;pointer-events:none;display:none;line-height:1}
+.r-card-checkwrap input[type=checkbox]:checked ~ .r-card-checkmark{display:block}
 .r-head{background:linear-gradient(135deg,var(--blue-dark),var(--blue-mid));color:#fff;padding:11px 14px;display:flex;justify-content:space-between;align-items:center;gap:8px}
 .r-seq{font-family:'JetBrains Mono',monospace;font-size:12px;background:rgba(255,255,255,.15);padding:2px 8px;border-radius:5px;white-space:nowrap}
 .r-ttl{font-size:14px;font-weight:700;flex:1}
@@ -434,7 +441,7 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
       </div>
     </div>
     <div class="header-right">
-      <span class="ver-badge">v1.2</span>
+      <span class="ver-badge">v1.3</span>
       <span class="worker-badge" id="workerBadge" onclick="changeWorker()" title="클릭하면 작업자 변경">👷 <span id="workerBadgeName">-</span></span>
       <span id="fbStatus" title="Firebase 연결 상태" style="font-size:13px;padding:3px 8px;border-radius:10px;background:rgba(255,255,255,.1);color:#90caf9;margin-right:2px">🔄</span>
       <span class="header-badge" id="recordCount">0건</span>
@@ -759,9 +766,11 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
     </div>
     <div id="deleteActionBar" style="display:none;background:#ffebee;border:1px solid #ef9a9a;border-radius:10px;padding:10px 14px;margin-bottom:10px;align-items:center;justify-content:space-between;gap:8px">
       <span id="deleteCountMsg" style="font-size:13px;font-weight:700;color:#c62828">0개 선택됨</span>
-      <div style="display:flex;gap:8px">
-        <button onclick="deleteSelected()" style="background:#c62828;border:none;color:#fff;border-radius:8px;padding:8px 16px;font-family:'Noto Sans KR',sans-serif;font-size:13px;font-weight:700;cursor:pointer">선택 삭제</button>
-        <button onclick="toggleDeleteMode()" style="background:#fff;border:1px solid #c62828;color:#c62828;border-radius:8px;padding:8px 16px;font-family:'Noto Sans KR',sans-serif;font-size:13px;font-weight:700;cursor:pointer">취소</button>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button onclick="selectAllRecords()" id="selectAllBtn" style="background:#fff;border:1px solid #c62828;color:#c62828;border-radius:8px;padding:8px 12px;font-family:'Noto Sans KR',sans-serif;font-size:13px;font-weight:700;cursor:pointer">전체선택</button>
+        <button onclick="deleteSelected()" style="background:#c62828;border:none;color:#fff;border-radius:8px;padding:8px 12px;font-family:'Noto Sans KR',sans-serif;font-size:13px;font-weight:700;cursor:pointer">선택 삭제</button>
+        <button onclick="deleteAllRecords()" style="background:linear-gradient(135deg,#6a0000,#b71c1c);border:none;color:#fff;border-radius:8px;padding:8px 12px;font-family:'Noto Sans KR',sans-serif;font-size:13px;font-weight:700;cursor:pointer">⚠️ 일괄삭제</button>
+        <button onclick="toggleDeleteMode()" style="background:#fff;border:1px solid #c62828;color:#c62828;border-radius:8px;padding:8px 12px;font-family:'Noto Sans KR',sans-serif;font-size:13px;font-weight:700;cursor:pointer">취소</button>
       </div>
     </div>
     <input class="srch" type="search" placeholder="🔍  관리번호, 주소, 연번 검색..." id="searchBox" oninput="renderList()">
@@ -1280,14 +1289,8 @@ function syncSmcoverManhole(){
   const is648      = mhVal === '648';
   const smNoVroom  = false; /* 밸브실크기는 항상 입력 가능 */
 
-  /* ── 소형철개 있으면 → 맨홀철개 비활성 ── */
-  if(hasSmcover){
-    mhSel.disabled=true; mhSel.value=''; dwMh.classList.remove('on');
-    document.getElementById('dt-manhole').value='';
-    mhBadge.classList.add('on');
-  } else {
-    mhSel.disabled=false; mhBadge.classList.remove('on');
-  }
+  /* ── 소형철개 있어도 맨홀철개 항상 활성 ── */
+  mhSel.disabled=false; mhBadge.classList.remove('on');
 
   /* ── 맨홀철개 있으면 → 소형철개 비활성 ── */
   if(hasManhole){
@@ -1645,6 +1648,26 @@ function updateDeleteCount() {
   document.getElementById('deleteCountMsg').textContent = `${selectedIds.size}개 선택됨`;
 }
 
+async function deleteAllRecords() {
+  if(!records.length){ showToast('삭제할 기록이 없습니다'); return; }
+  if(!confirm(`전체 ${records.length}건을 모두 삭제할까요?\n이 작업은 되돌릴 수 없습니다!`)) return;
+  const toDelete = [...records];
+  records = [];
+  saveRecords(); renderList(); updateBadge();
+  let failCount = 0;
+  for(const rec of toDelete){
+    try {
+      if(window.fbDeleteRecord) await window.fbDeleteRecord(rec);
+    } catch(e) {
+      failCount++;
+      console.warn('삭제 실패:', rec.seqno, e);
+    }
+  }
+  if(failCount > 0) showToast(`⚠️ ${toDelete.length - failCount}건 삭제, ${failCount}건 실패`);
+  else showToast(`🗑 전체 ${toDelete.length}건 삭제 완료`);
+  toggleDeleteMode();
+}
+
 async function deleteSelected() {
   if (!selectedIds.size) { showToast('삭제할 항목을 선택하세요'); return; }
   if (!confirm(`선택한 ${selectedIds.size}건을 삭제할까요?`)) return;
@@ -1688,7 +1711,7 @@ function renderList(){
     return `
     <div class="r-card${isSelected ? ' r-card-selected' : ''}" onclick="${cardClick}" style="${deleteMode ? 'cursor:pointer' : ''}">
       <div class="r-head" style="${isSelected ? 'background:linear-gradient(135deg,#c62828,#e53935)' : ''}">
-        ${deleteMode ? `<input type="checkbox" ${isSelected ? 'checked' : ''} onclick="toggleSelectCard(${r.id},event)" style="width:18px;height:18px;cursor:pointer;flex-shrink:0;accent-color:#fff">` : ''}
+        ${deleteMode ? `<span class="r-card-checkwrap"><input type="checkbox" ${isSelected ? 'checked' : ''} onclick="toggleSelectCard(${r.id},event)"><span class="r-card-checkmark">✔</span></span>` : ''}
         <span class="r-seq">#${r.seqno||'?'}</span>
         ${r.author?`<span class="r-author${r.author===currentWorker?' mine':''}">👤${r.author}</span>`:''}
         <span class="r-ttl">${title}</span>
