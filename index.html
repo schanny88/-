@@ -598,7 +598,7 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 <tr>
   <td class="lb-vert" rowspan="5"><span>기본현황</span></td>
   <td class="lb">조사연번</td>
-  <td class="inp"><input type="number" id="f-seqno" placeholder="연번" min="1" style="font-weight:700;color:var(--blue-dark)"></td>
+  <td class="inp"><input type="number" id="f-seqno" placeholder="연번" min="1" style="font-weight:700;color:var(--blue-dark)" oninput="this.dataset.manual='1'" onfocus="this.dataset.manual='0'"></td>
   <td class="lb">관리번호</td>
   <td class="inp" colspan="2"><input type="text" id="f-mgmtno" placeholder="JS01-000"></td>
 </tr>
@@ -626,7 +626,7 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 </tr>
 <tr>
   <td class="lb">소블록</td>
-  <td class="inp"><select id="f-smallblock" onchange="chkD(this,'dw-smallblock')"><option value="">-</option><option>PS-1</option><option>PS-2</option><option>PS-3</option><option>PS-4</option><option value="__d__">직접입력...</option></select><div class="dw" id="dw-smallblock"><input type="text" placeholder="직접 입력" id="dt-smallblock"></div></td>
+  <td class="inp"><select id="f-smallblock" onchange="chkD(this,'dw-smallblock');refreshSeqnoOnBlockChange()"><option value="">-</option><option>PS-1</option><option>PS-2</option><option>PS-3</option><option>PS-4</option><option value="__d__">직접입력...</option></select><div class="dw" id="dw-smallblock"><input type="text" placeholder="직접 입력" id="dt-smallblock"></div></td>
   <td class="lb">밸브<br>상태</td>
   <td class="inp" colspan="3">
     <div class="oc-wrap">
@@ -1038,12 +1038,14 @@ function onBigblockChange(){
   onMidblockChange();
   if(!big || !BLOCK_DATA[big]) {
     const od = document.createElement('option'); od.value='__d__'; od.textContent='직접입력...'; midSel.appendChild(od);
+    refreshSeqnoOnBlockChange();
     return;
   }
   Object.keys(BLOCK_DATA[big]).forEach(mid => {
     const o = document.createElement('option'); o.value = mid; o.textContent = mid; midSel.appendChild(o);
   });
   const od = document.createElement('option'); od.value='__d__'; od.textContent='직접입력...'; midSel.appendChild(od);
+  refreshSeqnoOnBlockChange();
 }
 
 function onMidblockChange(){
@@ -1057,12 +1059,14 @@ function onMidblockChange(){
   chkD(document.getElementById('f-midblock'), 'dw-midblock');
   if(!big || !mid || mid === '__d__' || !BLOCK_DATA[big] || !BLOCK_DATA[big][mid]) {
     const od = document.createElement('option'); od.value='__d__'; od.textContent='직접입력...'; smallSel.appendChild(od);
+    refreshSeqnoOnBlockChange();
     return;
   }
   BLOCK_DATA[big][mid].forEach(small => {
     const o = document.createElement('option'); o.value = small; o.textContent = small; smallSel.appendChild(o);
   });
   const od = document.createElement('option'); od.value='__d__'; od.textContent='직접입력...'; smallSel.appendChild(od);
+  refreshSeqnoOnBlockChange();
 }
 
 const MAKERS = {
@@ -1196,9 +1200,40 @@ function getNextSeqno(){
   if(!records.length) return 1;
   return Math.max(...records.map(r=>parseInt(r.seqno)||0))+1;
 }
+
+/* 블록 조합(대+중+소)이 같은 레코드들 중 최대 seqno+1 반환 */
+function getNextSeqnoForBlock(){
+  const big   = document.getElementById('f-bigblock').value;
+  const mid   = document.getElementById('f-midblock').value === '__d__'
+                  ? document.getElementById('dt-midblock').value.trim()
+                  : document.getElementById('f-midblock').value;
+  const small = document.getElementById('f-smallblock').value === '__d__'
+                  ? document.getElementById('dt-smallblock').value.trim()
+                  : document.getElementById('f-smallblock').value;
+
+  /* 블록값이 하나도 없으면 전체 기준 */
+  if(!big && !mid && !small) return getNextSeqno();
+
+  const matched = records.filter(r =>
+    (r.bigblock||'') === big &&
+    (r.midblock||'') === mid &&
+    (r.smallblock||'') === small
+  );
+  if(!matched.length) return 1;
+  return Math.max(...matched.map(r=>parseInt(r.seqno)||0))+1;
+}
+
 function updateSeqPreview(){
   const el=document.getElementById('f-seqno');
-  if(!el.value) el.value=getNextSeqno();
+  if(!el.value) el.value=getNextSeqnoForBlock();
+}
+
+/* 블록 변경 시 조사연번 자동 갱신 (수동 입력 중이면 유지) */
+function refreshSeqnoOnBlockChange(){
+  const el = document.getElementById('f-seqno');
+  /* 이미 수동으로 값을 변경했는지 여부는 data-manual 속성으로 관리 */
+  if(el.dataset.manual === '1') return;
+  el.value = getNextSeqnoForBlock();
 }
 
 function onVtypeChange(){
@@ -1763,7 +1798,8 @@ function resetForm(){
     document.getElementById('dt-smallblock').value = '';
   }
   updateVformOptions(''); updateMakerOptions('');
-  document.getElementById('f-seqno').value=getNextSeqno();
+  document.getElementById('f-seqno').value=getNextSeqnoForBlock();
+  document.getElementById('f-seqno').dataset.manual='0';
   /* 블록 직접입력 dw는 복원값 유지, 나머지만 닫기 */
   document.querySelectorAll('.dw').forEach(el=>{
     if(['dw-midblock','dw-smallblock'].includes(el.id)) return;
