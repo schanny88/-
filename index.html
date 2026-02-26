@@ -2696,7 +2696,6 @@ function _doRenderLayers(){
   valve.overlays.forEach(o => o.setMap(null));
   valve.overlays = [];
   if(valve.data && valve.visible && zoomLevel <= 5){
-    const imgSize = zoomLevel <= 3 ? 18 : 14;
     valve.data.features.forEach(feat => {
       const geom = feat.geometry;
       if(!geom || geom.type !== 'Point') return;
@@ -2710,28 +2709,41 @@ function _doRenderLayers(){
       const seqnoFromMap = window._valveSeqnoMap && window._valveSeqnoMap[valveKey];
       const displaySeqno = surveyedRec ? surveyedRec.seqno : (seqnoFromMap || null);
 
-      /* 완료: 초록 틴트 + 연번 라벨 / 미조사: 원본 빨간 심볼 */
+      /* 완료: 초록 원형 + 연번 라벨 / 미조사: 빨간 원형 심볼 */
+      const circleSize = zoomLevel <= 3 ? 22 : 16;
       let dotContent;
       if(isCompleted && displaySeqno){
         dotContent = `<div onclick="handleValveClick(${lat},${lng},${isCompleted})"
           title="✅ 완료 (#${displaySeqno}) - 클릭하면 내역 조회"
           style="display:flex;flex-direction:column;align-items:center;cursor:pointer;">
-          <img src="${VALVE_SYMBOL_IMG}" style="width:${imgSize}px;height:${imgSize}px;filter:invert(40%) sepia(100%) saturate(400%) hue-rotate(90deg) brightness(1.1);display:block;">
+          <svg width="${circleSize}" height="${circleSize}" viewBox="0 0 22 22" xmlns="http://www.w3.org/2000/svg" style="display:block;filter:drop-shadow(0 1px 3px rgba(0,0,0,.5))">
+            <circle cx="11" cy="11" r="9" fill="#22a745" stroke="#fff" stroke-width="2.5"/>
+            <line x1="11" y1="5" x2="11" y2="17" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>
+            <line x1="5" y1="11" x2="17" y2="11" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>
+          </svg>
           <div style="background:#22a745;color:#fff;font-family:'Noto Sans KR',sans-serif;font-weight:700;font-size:9px;
             padding:1px 5px;border-radius:3px;margin-top:1px;white-space:nowrap;
-            box-shadow:0 1px 3px rgba(0,0,0,.3)">#${displaySeqno}</div>
+            box-shadow:0 1px 3px rgba(0,0,0,.4)">#${displaySeqno}</div>
         </div>`;
       } else if(isCompleted){
         dotContent = `<div onclick="handleValveClick(${lat},${lng},${isCompleted})"
           title="✅ 완료 - 클릭하면 내역 조회"
           style="cursor:pointer;">
-          <img src="${VALVE_SYMBOL_IMG}" style="width:${imgSize}px;height:${imgSize}px;filter:invert(40%) sepia(100%) saturate(400%) hue-rotate(90deg) brightness(1.1);display:block;">
+          <svg width="${circleSize}" height="${circleSize}" viewBox="0 0 22 22" xmlns="http://www.w3.org/2000/svg" style="display:block;filter:drop-shadow(0 1px 3px rgba(0,0,0,.5))">
+            <circle cx="11" cy="11" r="9" fill="#22a745" stroke="#fff" stroke-width="2.5"/>
+            <line x1="11" y1="5" x2="11" y2="17" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>
+            <line x1="5" y1="11" x2="17" y2="11" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>
+          </svg>
         </div>`;
       } else {
         dotContent = `<div onclick="handleValveClick(${lat},${lng},${isCompleted})"
           title="📋 미조사 - 클릭하면 대장입력"
           style="cursor:pointer;">
-          <img src="${VALVE_SYMBOL_IMG}" style="width:${imgSize}px;height:${imgSize}px;display:block;">
+          <svg width="${circleSize}" height="${circleSize}" viewBox="0 0 22 22" xmlns="http://www.w3.org/2000/svg" style="display:block;filter:drop-shadow(0 1px 3px rgba(0,0,0,.5))">
+            <circle cx="11" cy="11" r="9" fill="#e53935" stroke="#fff" stroke-width="2.5"/>
+            <line x1="11" y1="5" x2="11" y2="17" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>
+            <line x1="5" y1="11" x2="17" y2="11" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>
+          </svg>
         </div>`;
       }
 
