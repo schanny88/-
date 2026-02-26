@@ -893,6 +893,38 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 <!-- GPS 지도 -->
 <div class="page" id="page-map">
   <div class="map-pg">
+
+    <!-- 관망도 레이어 패널 -->
+    <div style="background:#f0f4fb;border:1.5px solid #c5d8f0;border-radius:10px;padding:10px 14px;margin-bottom:10px;">
+      <div style="font-size:13px;font-weight:700;color:var(--blue-dark);margin-bottom:8px;">🗺 관망도 레이어</div>
+
+      <!-- 배수관로 레이어 -->
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
+        <span style="display:inline-block;width:28px;height:4px;background:#1a6bc9;border-radius:2px;flex-shrink:0"></span>
+        <span style="font-size:12px;font-weight:700;flex:1">배수관로</span>
+        <span id="pipeFileName" style="font-size:10px;color:var(--muted)">미로드</span>
+        <label for="pipeInput" style="cursor:pointer;background:#e8f0fa;color:var(--blue-dark);font-size:11px;font-weight:700;padding:4px 10px;border-radius:6px;border:1px solid #c5d8f0;">📂 불러오기</label>
+        <input type="file" id="pipeInput" accept=".geojson,.json" style="display:none" onchange="loadLayerGeoJSON('pipe',this)">
+        <button onclick="toggleLayer('pipe')" id="pipeToggleBtn" style="font-size:11px;padding:4px 12px;border-radius:6px;background:#22a745;color:#fff;border:none;cursor:pointer;font-weight:700;">ON</button>
+        <button onclick="clearLayer('pipe')" style="font-size:11px;padding:4px 8px;border-radius:6px;background:#eee;border:none;cursor:pointer;color:#888;">✕</button>
+      </div>
+
+      <!-- 제수밸브 레이어 -->
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <span style="display:inline-block;width:12px;height:12px;background:#e53935;border-radius:50%;border:2px solid #b71c1c;flex-shrink:0"></span>
+        <span style="font-size:12px;font-weight:700;flex:1">제수밸브</span>
+        <span id="valveFileName" style="font-size:10px;color:var(--muted)">미로드</span>
+        <label for="valveInput" style="cursor:pointer;background:#faeaea;color:#c62828;font-size:11px;font-weight:700;padding:4px 10px;border-radius:6px;border:1px solid #f5c6c6;">📂 불러오기</label>
+        <input type="file" id="valveInput" accept=".geojson,.json" style="display:none" onchange="loadLayerGeoJSON('valve',this)">
+        <button onclick="toggleLayer('valve')" id="valveToggleBtn" style="font-size:11px;padding:4px 12px;border-radius:6px;background:#22a745;color:#fff;border:none;cursor:pointer;font-weight:700;">ON</button>
+        <button onclick="clearLayer('valve')" style="font-size:11px;padding:4px 8px;border-radius:6px;background:#eee;border:none;cursor:pointer;color:#888;">✕</button>
+      </div>
+
+      <div style="font-size:10px;color:var(--muted);margin-top:8px;line-height:1.6">
+        💡 줌 레벨 4 이상에서 배수관로 표시 &nbsp;|&nbsp; 줌 레벨 3 이상에서 제수밸브 표시
+      </div>
+    </div>
+
     <div class="map-container">
       <div class="map-empty" id="mapEmpty">
         <div class="ic">📍</div>
@@ -901,6 +933,25 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
       </div>
       <div id="gpsMap" style="display:none;width:100%;height:380px;border-radius:10px;overflow:hidden"></div>
     </div>
+
+    <!-- 지도 범례 -->
+    <div style="display:flex;gap:12px;flex-wrap:wrap;padding:8px 2px;margin-bottom:4px;align-items:center;">
+      <span style="font-size:11px;font-weight:700;color:#555">범례</span>
+      <span style="display:flex;align-items:center;gap:4px;font-size:11px;">
+        <span style="display:inline-block;width:14px;height:14px;background:#22a745;border-radius:3px;border:1.5px solid #157335"></span>
+        조사완료
+      </span>
+      <span style="display:flex;align-items:center;gap:4px;font-size:11px;">
+        <span style="display:inline-block;width:28px;height:4px;background:#1a6bc9;border-radius:2px"></span>
+        배수관로
+      </span>
+      <span style="display:flex;align-items:center;gap:4px;font-size:11px;">
+        <span style="display:inline-block;width:12px;height:12px;background:#e53935;border-radius:50%;border:2px solid #b71c1c"></span>
+        제수밸브
+      </span>
+      <span id="mapSummaryBadge" style="margin-left:auto;font-size:11px;color:var(--muted)"></span>
+    </div>
+
     <div class="map-legend">
       <h4 style="display:flex;align-items:center;gap:8px;">
         📍 GPS 등록 목록
@@ -1118,6 +1169,8 @@ function startWorkerSession(){
   document.getElementById('page-login').style.display = 'none';
   document.getElementById('appHeader').style.display = '';
   document.querySelectorAll('.page').forEach(p => { if(p.id !== 'page-login') p.style.visibility = ''; });
+  /* IndexedDB에서 저장된 레이어 자동 복원 */
+  loadLayersFromIDB();
 }
 function changeWorker(){
   document.getElementById('workerNameInput').value = currentWorker;
@@ -1726,6 +1779,8 @@ async function saveRecord(){
     bigblock:g('f-bigblock'), midblock:gv('f-midblock','dt-midblock'), smallblock:gv('f-smallblock','dt-smallblock'), smallmemo:selValveStateVal,
     gps:gpsData?`${gpsData.lat},${gpsData.lng}`:'',
     gpsLat:gpsData?parseFloat(gpsData.lat):null, gpsLng:gpsData?parseFloat(gpsData.lng):null,
+    /* ★ 클릭한 심볼의 정확한 좌표 키 저장 — 심볼 1:1 매칭에 사용 */
+    valveKey: _pendingValveKey || null,
     vtype:g('f-vtype'), vform:gv('f-vform','dt-vform'), drive:g('f-drive'), maker:gv('f-maker','dt-maker'),
     dia:gv('f-dia','dt-dia'), material:gv('f-material','dt-material'),
     installyear:g('f-installyear'), rotation:g('f-rotation'),
@@ -1744,6 +1799,17 @@ async function saveRecord(){
   if(saveRecords()){
     if(window.fbSaveRecord){ await window.fbSaveRecord(rec); }
     [2,3].forEach(i=>{ document.getElementById('pu'+i).classList.remove('on'); });
+    /* 지도에서 밸브 클릭해서 입력한 경우 → 해당 밸브 완료 표시 */
+    if(_pendingValveKey){
+      _completedValves.add(_pendingValveKey);
+      /* seqno도 함께 저장: key → seqno 매핑 */
+      if(!window._valveSeqnoMap) window._valveSeqnoMap = {};
+      window._valveSeqnoMap[_pendingValveKey] = rec.seqno;
+      _idbSet('completedValves', [..._completedValves]).catch(()=>{});
+      _idbSet('valveSeqnoMap', window._valveSeqnoMap).catch(()=>{});
+      _pendingValveKey = null;
+      renderLayerOverlays(0); /* 색상 갱신 */
+    }
     showToast('✅ 저장 완료!  #'+rec.seqno+'  (블록 유지됨)');
     btn.disabled=false; btn.textContent='💾 관리대장 저장';
     resetForm(); updateBadge();
@@ -2082,27 +2148,177 @@ let _kakaoOverlays = [];
 let _activeInfoOverlay = null;
 let _selectedSeqno = null;
 
+/* ── 관망도 레이어 상태 ── */
+const _layers = {
+  pipe:  { data: null, overlays: [], visible: true },
+  valve: { data: null, overlays: [], visible: true },
+};
+
+/* ── 수동 완료 처리된 밸브 좌표 Set ("lat,lng" 문자열) ── */
+let _completedValves = new Set();
+
+/* ── IndexedDB 유틸 ── */
+const IDB_NAME = 'valveMapDB', IDB_VER = 1, IDB_STORE = 'layers';
+function _openIDB(){
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_NAME, IDB_VER);
+    req.onupgradeneeded = e => e.target.result.createObjectStore(IDB_STORE);
+    req.onsuccess = e => resolve(e.target.result);
+    req.onerror   = e => reject(e.target.error);
+  });
+}
+async function _idbSet(key, value){
+  const db = await _openIDB();
+  return new Promise((res, rej) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).put(value, key);
+    tx.oncomplete = () => res();
+    tx.onerror    = e => rej(e.target.error);
+  });
+}
+async function _idbGet(key){
+  const db = await _openIDB();
+  return new Promise((res, rej) => {
+    const tx  = db.transaction(IDB_STORE, 'readonly');
+    const req = tx.objectStore(IDB_STORE).get(key);
+    req.onsuccess = () => res(req.result ?? null);
+    req.onerror   = e => rej(e.target.error);
+  });
+}
+async function _idbDel(key){
+  const db = await _openIDB();
+  return new Promise((res, rej) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).delete(key);
+    tx.oncomplete = () => res();
+    tx.onerror    = e => rej(e.target.error);
+  });
+}
+
+/* 앱 시작 시 IndexedDB에서 레이어 자동 복원 */
+async function loadLayersFromIDB(){
+  try {
+    for(const key of ['pipe','valve']){
+      const stored = await _idbGet('layer_'+key);
+      if(stored){
+        _layers[key].data = stored;
+        const nameEl = document.getElementById(key==='pipe'?'pipeFileName':'valveFileName');
+        if(nameEl) nameEl.textContent = stored.features.length.toLocaleString()+'개 (저장됨)';
+        const btn = document.getElementById(key+'ToggleBtn');
+        if(btn){ btn.textContent='ON'; btn.style.background='#22a745'; }
+      }
+    }
+    const saved = await _idbGet('completedValves');
+    if(saved) _completedValves = new Set(saved);
+    const savedSeqMap = await _idbGet('valveSeqnoMap');
+    if(savedSeqMap) window._valveSeqnoMap = savedSeqMap;
+    if(_kakaoMap) renderLayerOverlays(0);
+  } catch(e){ console.warn('IDB 복원 실패:', e); }
+}
+
 function focusMapMarker(seqno){
   const r = records.find(r => String(r.seqno) === String(seqno));
-  if(!r || !_kakaoMap) return;
+  if(!r) return;
 
-  /* 지도 이동 */
-  const pos = new kakao.maps.LatLng(r.gpsLat, r.gpsLng);
-  _kakaoMap.setCenter(pos);
-  _kakaoMap.setLevel(3);
-
-  /* 기존 선택 해제 */
+  /* 지도에서 선택 상태 업데이트 */
+  if(_kakaoMap){
+    const pos = new kakao.maps.LatLng(r.gpsLat, r.gpsLng);
+    _kakaoMap.setCenter(pos);
+    _kakaoMap.setLevel(3);
+  }
   if(_activeInfoOverlay){ _activeInfoOverlay.setMap(null); _activeInfoOverlay = null; }
   _selectedSeqno = String(seqno);
 
-  /* 선택된 마커 강조 + 정보창 */
-  renderMapTab();
+  /* 대장 입력 탭으로 전환하고 해당 기록 내용을 폼에 채우기 */
+  loadRecordToForm(r);
+  const formBtn = document.querySelector('.tab-btn[onclick*="form"]');
+  if(formBtn) showTab('form', formBtn);
+  window.scrollTo({top:0,behavior:'smooth'});
+  showToast(`📋 #${r.seqno} ${r.mgmtno||r.addr||''} 기록을 불러왔습니다`);
+}
 
-  /* 목록 하이라이트 */
-  document.querySelectorAll('.map-list-item').forEach(el => {
-    el.style.background = el.dataset.seqno === String(seqno) ? '#dde8f5' : '#f7f9fc';
-    el.style.borderColor = el.dataset.seqno === String(seqno) ? 'var(--blue-mid)' : 'var(--border)';
+function loadRecordToForm(r){
+  /* 기본 필드 */
+  const setVal = (id, val) => { const el=document.getElementById(id); if(el) el.value = val||''; };
+
+  setVal('f-date',       r.date);
+  setVal('f-seqno',      r.seqno);
+  document.getElementById('f-seqno').dataset.manual = '1';
+  setVal('f-mgmtno',     r.mgmtno);
+  setVal('f-addr',       r.addr);
+  setVal('f-installyear',r.installyear);
+  setVal('f-totalrot',   r.totalrot);
+  setVal('f-currot',     r.currot);
+  setVal('f-depth',      r.depth);
+  setVal('f-notes',      r.notes);
+
+  /* 블록 */
+  setVal('f-bigblock', r.bigblock);
+  onBigblockChange();
+  setVal('f-midblock', r.midblock);
+  onMidblockChange();
+  setVal('f-smallblock', r.smallblock);
+  setVal('dt-midblock',  '');
+  setVal('dt-smallblock','');
+
+  /* 밸브 종류/형식 */
+  setVal('f-vtype', r.vtype);
+  onVtypeChange();
+  updateVformOptions(r.vtype);
+  setVal('f-vform', r.vform);
+  setVal('dt-vform', '');
+
+  /* 기타 select 필드 */
+  setVal('f-drive',    r.drive);
+  setVal('f-dia',      r.dia);
+  setVal('f-material', r.material);
+  setVal('f-rotation', r.rotation);
+  setVal('f-maker',    r.maker);
+  setVal('dt-maker',   '');
+  setVal('dt-dia',     '');
+  setVal('dt-material','');
+
+  /* 밸브실 */
+  if(r.vroomSize){
+    const parts = r.vroomSize.split('×').map(s=>s.trim().replace('mm','').trim());
+    setVal('f-vroom1', parts[0]||'');
+    setVal('f-vroom2', parts[1]||'');
+    setVal('f-vroom3', parts[2]||'');
+  } else {
+    setVal('f-vroom1',''); setVal('f-vroom2',''); setVal('f-vroom3','');
+  }
+  setVal('f-smcover',  r.smcover);
+  setVal('f-manhole',  r.manhole);
+  setVal('f-protbox',  r.protbox);
+  setVal('f-vremark',  r.vremark);
+
+  /* 개폐여부 버튼 */
+  selOCVal = r.openclosed || '';
+  document.getElementById('oc-open').classList.toggle('on',  selOCVal==='OPEN');
+  document.getElementById('oc-close').classList.toggle('on', selOCVal==='CLOSE');
+
+  /* GPS 표시 */
+  if(r.gpsLat && r.gpsLng){
+    gpsData = { lat: r.gpsLat, lng: r.gpsLng, addr: r.addr };
+    document.getElementById('gpsDot').classList.add('on');
+    document.getElementById('gpsVal').textContent = `${r.gpsLat.toFixed(6)}, ${r.gpsLng.toFixed(6)}`;
+    document.getElementById('gpsVal').className = 'gps-val ok';
+  }
+
+  /* 사진 복원 (인덱스 2,3만 UI에 표시) */
+  photos = [null, null, null, null];
+  (r.photos||[]).forEach((src, i) => { photos[i] = src || null; });
+  [2,3].forEach(idx => {
+    const src   = photos[idx];
+    const imgEl = document.getElementById('pi'+idx);
+    const capEl = document.getElementById('pc'+idx);
+    const sizeEl= document.getElementById('ps'+idx);
+    if(imgEl) imgEl.src = src || '';
+    if(capEl) capEl.classList.toggle('hp', !!src);
+    if(sizeEl) sizeEl.textContent = '';
   });
+
+  updateSeqPreview();
 }
 
 function renderMapTab(){
@@ -2115,8 +2331,13 @@ function renderMapTab(){
   if(badge) badge.textContent = gr.length + '개';
 
   if(!gr.length){
-    mapEmpty.style.display = 'flex';
-    gpsMap.style.display   = 'none';
+    /* GPS 기록 없어도 관망도 레이어가 있으면 지도 표시 */
+    if(_layers.pipe.data || _layers.valve.data){
+      initMapForLayers();
+    } else {
+      mapEmpty.style.display = 'flex';
+      gpsMap.style.display   = 'none';
+    }
     mapList.innerHTML = '<div style="font-size:12px;color:var(--muted);text-align:center;padding:16px">GPS 데이터가 있는 기록이 없어요</div>';
     return;
   }
@@ -2128,20 +2349,25 @@ function renderMapTab(){
   const center = new kakao.maps.LatLng(gr[0].gpsLat, gr[0].gpsLng);
   if(!_kakaoMap){
     _kakaoMap = new kakao.maps.Map(gpsMap, { center, level: 4 });
+    /* 줌/이동 시 레이어 재렌더링 (디바운스 적용) */
+    kakao.maps.event.addListener(_kakaoMap, 'zoom_changed', () => renderLayerOverlays(300));
+    kakao.maps.event.addListener(_kakaoMap, 'dragend',      () => renderLayerOverlays(200));
   } else {
     _kakaoOverlays.forEach(o => o.setMap(null));
     _kakaoOverlays = [];
   }
 
-  /* ── 커스텀 마커 ── */
+  /* ── 관망도 레이어 렌더링 ── */
+  renderLayerOverlays();
+
+  /* ── 커스텀 마커 (조사완료=초록, 선택=빨강) ── */
   gr.forEach(r => {
     const pos = new kakao.maps.LatLng(r.gpsLat, r.gpsLng);
     const isSelected = String(r.seqno) === _selectedSeqno;
-    const bg    = isSelected ? '#c62828' : '#1a4fa0';
-    const border= isSelected ? '#7f0000' : '#0d3170';
+    /* 조사완료는 초록, 선택 시 강조빨강 */
+    const bg    = isSelected ? '#c62828' : '#22a745';
+    const border= isSelected ? '#7f0000' : '#157335';
     const size  = isSelected ? 'font-size:12px;padding:5px 10px;' : 'font-size:11px;padding:4px 8px;';
-
-    /* 겹침 처리: zIndex를 seqno 기반으로 설정, 선택된 건 최상위 */
     const zIdx = isSelected ? 99 : (parseInt(r.seqno) || 0);
 
     const content = `
@@ -2154,7 +2380,7 @@ function renderMapTab(){
           font-family:'Noto Sans KR',sans-serif;font-weight:700;
           ${size}
           border-radius:6px;white-space:nowrap;
-          box-shadow:0 2px 8px rgba(13,49,112,.4);
+          box-shadow:0 2px 8px rgba(0,0,0,.3);
           border:1.5px solid ${border};
           transition:all .15s;
         ">#${r.seqno}</div>
@@ -2184,6 +2410,10 @@ function renderMapTab(){
     _kakaoMap.setBounds(bounds);
   }
 
+  /* 조사 요약 뱃지 */
+  const summaryBadge = document.getElementById('mapSummaryBadge');
+  if(summaryBadge) summaryBadge.textContent = `조사완료 ${gr.length}건`;
+
   /* ── 목록 렌더링 ── */
   mapList.innerHTML = gr.map((r) => `
     <div class="map-list-item" data-seqno="${r.seqno}"
@@ -2193,7 +2423,7 @@ function renderMapTab(){
         border-radius:8px;border:1px solid ${String(r.seqno)===_selectedSeqno?'var(--blue-mid)':'var(--border)'};
         cursor:pointer;transition:background .15s;">
       <div style="min-width:24px;height:24px;border-radius:50%;
-        background:${String(r.seqno)===_selectedSeqno?'var(--red)':'var(--blue-dark)'};
+        background:${String(r.seqno)===_selectedSeqno?'var(--red)':'#22a745'};
         color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center">
         ${r.seqno}
       </div>
@@ -2201,9 +2431,291 @@ function renderMapTab(){
         <div style="font-size:12px;font-weight:700">${r.mgmtno||'관리번호 없음'} <span style="color:var(--muted);font-weight:400">#${r.seqno}</span></div>
         <div style="font-size:10px;color:var(--muted);margin-top:1px">${r.addr||''}</div>
       </div>
+      <span style="font-size:10px;background:#e8f5e9;color:#1b5e20;padding:2px 7px;border-radius:5px;font-weight:700">✅ 완료</span>
       <span style="font-size:10px;background:var(--blue-light);color:var(--blue-dark);padding:2px 7px;border-radius:5px;font-weight:700">${r.vtype||'?'}</span>
-      <span style="font-size:10px;color:var(--muted)">📍</span>
     </div>`).join('');
+}
+
+/* ══════════════════════════════════════
+   관망도 레이어 관리
+══════════════════════════════════════ */
+
+/* 레이어별 GeoJSON 로드 */
+function loadLayerGeoJSON(layerKey, input){
+  const file = input.files[0];
+  if(!file) return;
+  const nameEl = document.getElementById(layerKey==='pipe' ? 'pipeFileName' : 'valveFileName');
+  nameEl.textContent = '⏳ 로딩 중...';
+  const reader = new FileReader();
+  reader.onload = e => {
+    try{
+      const data = JSON.parse(e.target.result);
+      if(!data.type || !data.features){ showToast('⚠️ 유효한 GeoJSON 파일이 아닙니다'); nameEl.textContent='오류'; return; }
+      _layers[layerKey].data = data;
+      _layers[layerKey].visible = true;
+      const btn = document.getElementById(layerKey+'ToggleBtn');
+      if(btn){ btn.textContent='ON'; btn.style.background='#22a745'; }
+      nameEl.textContent = `${data.features.length.toLocaleString()}개`;
+      showToast(`✅ ${layerKey==='pipe'?'배수관로':'제수밸브'} 로드 완료 — ${data.features.length.toLocaleString()}개`);
+      /* IndexedDB에 저장 → 다음 접속 시 자동 복원 */
+      _idbSet('layer_'+layerKey, data)
+        .then(()=> showToast('💾 기기에 저장됨 — 다음부터 자동 로드'))
+        .catch(()=>{});
+      /* 지도가 이미 초기화된 경우 바로 렌더링 */
+      if(_kakaoMap) renderLayerOverlays(0);
+      /* 지도가 없으면 GPS 기록 없어도 지도 탭 강제 초기화 */
+      else initMapForLayers();
+    } catch(err){
+      showToast('⚠️ JSON 파싱 오류: ' + err.message);
+      nameEl.textContent = '오류';
+    }
+  };
+  reader.readAsText(file);
+  input.value = '';
+}
+
+/* 관망도만 표시하기 위한 지도 초기화 (GPS 기록 없어도) */
+function initMapForLayers(){
+  const gpsMap = document.getElementById('gpsMap');
+  const mapEmpty = document.getElementById('mapEmpty');
+  if(!gpsMap) return;
+  mapEmpty.style.display = 'none';
+  gpsMap.style.display = 'block';
+  /* 평택시 중심 좌표로 초기화 */
+  const center = new kakao.maps.LatLng(37.0, 127.0);
+  if(!_kakaoMap){
+    _kakaoMap = new kakao.maps.Map(gpsMap, { center, level: 8 });
+    /* 줌/이동 시 레이어 재렌더링 */
+    kakao.maps.event.addListener(_kakaoMap, 'zoom_changed', () => renderLayerOverlays(300));
+    kakao.maps.event.addListener(_kakaoMap, 'dragend',      () => renderLayerOverlays(200));
+  }
+  renderLayerOverlays();
+}
+
+/* 레이어 ON/OFF 토글 */
+function toggleLayer(layerKey){
+  const layer = _layers[layerKey];
+  if(!layer.data){ showToast('먼저 파일을 불러오세요'); return; }
+  layer.visible = !layer.visible;
+  const btn = document.getElementById(layerKey+'ToggleBtn');
+  if(btn){
+    btn.textContent = layer.visible ? 'ON' : 'OFF';
+    btn.style.background = layer.visible ? '#22a745' : '#aaa';
+  }
+  /* 숨김: 오버레이 제거 / 표시: 재렌더링 */
+  if(!layer.visible){
+    layer.overlays.forEach(o => o.setMap(null));
+    layer.overlays = [];
+  } else {
+    if(_kakaoMap) renderLayerOverlays();
+  }
+}
+
+/* 레이어 제거 */
+function clearLayer(layerKey){
+  const layer = _layers[layerKey];
+  layer.overlays.forEach(o => o.setMap(null));
+  layer.overlays = [];
+  layer.data = null;
+  layer.visible = true;
+  const btn = document.getElementById(layerKey+'ToggleBtn');
+  if(btn){ btn.textContent='ON'; btn.style.background='#22a745'; }
+  const nameEl = document.getElementById(layerKey==='pipe' ? 'pipeFileName' : 'valveFileName');
+  if(nameEl) nameEl.textContent = '미로드';
+  _idbDel('layer_'+layerKey).catch(()=>{});
+  showToast(`${layerKey==='pipe'?'배수관로':'제수밸브'} 레이어를 제거했습니다`);
+}
+
+/* ── 디바운스 타이머 ── */
+let _layerRenderTimer = null;
+
+/* 뷰포트 범위 안의 피처만 렌더링 (디바운스 적용) */
+function renderLayerOverlays(delay){
+  clearTimeout(_layerRenderTimer);
+  _layerRenderTimer = setTimeout(_doRenderLayers, delay != null ? delay : 300);
+}
+
+function _doRenderLayers(){
+  if(!_kakaoMap) return;
+
+  const zoomLevel = _kakaoMap.getLevel();
+  const bounds    = _kakaoMap.getBounds();
+  const swLat = bounds.getSouthWest().getLat();
+  const swLng = bounds.getSouthWest().getLng();
+  const neLat = bounds.getNorthEast().getLat();
+  const neLng = bounds.getNorthEast().getLng();
+
+  /* 뷰포트 안에 좌표가 있는지 빠르게 판별 */
+  const inBounds = (lat, lng) =>
+    lat >= swLat && lat <= neLat && lng >= swLng && lng <= neLng;
+
+  /* 라인의 양 끝점 중 하나라도 뷰포트 안이면 표시 */
+  const lineInBounds = coords =>
+    coords.some(c => inBounds(c[1], c[0]));
+
+  /* ── 배수관로: 줌 레벨 6 이하에서 뷰포트 내 라인만 ── */
+  const pipe = _layers.pipe;
+  pipe.overlays.forEach(o => o.setMap(null));
+  pipe.overlays = [];
+  if(pipe.data && pipe.visible && zoomLevel <= 6){
+    const sw = zoomLevel <= 3 ? 3 : 2;
+    pipe.data.features.forEach(feat => {
+      const geom = feat.geometry;
+      if(!geom) return;
+      const drawLine = coords => {
+        if(!coords || coords.length < 2) return;
+        if(!lineInBounds(coords)) return; /* 뷰포트 밖이면 스킵 */
+        const path = coords.map(c => new kakao.maps.LatLng(c[1], c[0]));
+        const poly = new kakao.maps.Polyline({
+          path, strokeWeight: sw,
+          strokeColor:'#1a6bc9', strokeOpacity:0.85, strokeStyle:'solid',
+          map: _kakaoMap
+        });
+        pipe.overlays.push(poly);
+      };
+      if(geom.type === 'LineString') drawLine(geom.coordinates);
+      else if(geom.type === 'MultiLineString') geom.coordinates.forEach(drawLine);
+    });
+  }
+
+  /* ── 제수밸브: 줌 레벨 5 이하에서 뷰포트 내 포인트만 ── */
+  const valve = _layers.valve;
+  valve.overlays.forEach(o => o.setMap(null));
+  valve.overlays = [];
+  if(valve.data && valve.visible && zoomLevel <= 5){
+    const dotSize = zoomLevel <= 3 ? 10 : 7;
+    valve.data.features.forEach(feat => {
+      const geom = feat.geometry;
+      if(!geom || geom.type !== 'Point') return;
+      const [lng, lat] = geom.coordinates;
+      if(!inBounds(lat, lng)) return; /* 뷰포트 밖이면 스킵 */
+      const pos = new kakao.maps.LatLng(lat, lng);
+      const valveKey = lat.toFixed(6)+','+lng.toFixed(6);
+      /* ★ 정확한 valveKey 매칭 — GPS 오차범위 비교 제거 */
+      const surveyedRec = records.find(r => r.valveKey === valveKey);
+      const isSurveyed = !!surveyedRec;
+      const isCompleted = isSurveyed || _completedValves.has(valveKey);
+      const color  = isCompleted ? '#22a745' : '#e53935';
+      const border = isCompleted ? '#157335' : '#b71c1c';
+
+      /* 완료된 경우 조사연번 표시 */
+      const seqnoFromMap = window._valveSeqnoMap && window._valveSeqnoMap[valveKey];
+      const displaySeqno = surveyedRec ? surveyedRec.seqno : (seqnoFromMap || null);
+
+      /* 완료: 연번 라벨 / 미완료: 원형 도트 */
+      let dotContent;
+      if(isCompleted && displaySeqno){
+        dotContent = `<div
+          onclick="handleValveClick(${lat},${lng},${isCompleted})"
+          title="✅ 완료 (#${displaySeqno}) - 클릭하면 내역 조회"
+          style="background:${color};color:#fff;
+            font-family:'Noto Sans KR',sans-serif;font-weight:700;font-size:10px;
+            padding:3px 7px;border-radius:5px;white-space:nowrap;
+            border:1.5px solid ${border};box-shadow:0 1px 4px rgba(0,0,0,.3);cursor:pointer;
+            transition:background .2s">#${displaySeqno}</div>`;
+      } else {
+        dotContent = `<div
+          onclick="handleValveClick(${lat},${lng},${isCompleted})"
+          title="${isCompleted ? '✅ 완료 - 클릭하면 내역 조회' : '📋 미조사 - 클릭하면 대장입력'}"
+          style="width:${dotSize}px;height:${dotSize}px;background:${color};border-radius:50%;
+            border:2px solid ${border};box-shadow:0 1px 4px rgba(0,0,0,.3);cursor:pointer;
+            transition:background .2s"></div>`;
+      }
+
+      const dot = new kakao.maps.CustomOverlay({
+        position: pos, zIndex: 2,
+        content: dotContent
+      });
+      dot.setMap(_kakaoMap);
+      valve.overlays.push(dot);
+    });
+  }
+}
+
+/* ── 제수밸브 클릭 처리 ── */
+function toggleValveComplete(valveKey){
+  const [latStr, lngStr] = valveKey.split(',');
+  const lat = parseFloat(latStr), lng = parseFloat(lngStr);
+
+  /* records에서 해당 좌표의 기록 확인 — ★ valveKey 정확 매칭 */
+  const isSurveyed = records.some(r => r.valveKey === valveKey);
+
+  if(isSurveyed || _completedValves.has(valveKey)){
+    /* ── 완료된 밸브: 토글(미조사로 되돌리기) ── */
+    if(_completedValves.has(valveKey)){
+      _completedValves.delete(valveKey);
+      _idbSet('completedValves', [..._completedValves]).catch(()=>{});
+      showToast('↩️ 미조사로 변경됐습니다');
+      renderLayerOverlays(0);
+    } else {
+      showToast('📋 이미 조사 완료된 밸브입니다');
+    }
+  } else {
+    /* ── 미완료 빨간 밸브: 대장입력 탭으로 이동 + GPS 자동입력 ── */
+    /* 탭 전환 */
+    const formBtn = document.querySelector('.tab-btn[onclick*="form"]');
+    if(formBtn) showTab('form', formBtn);
+
+    /* GPS 좌표 자동입력 */
+    gpsData = { lat: lat.toFixed(6), lng: lng.toFixed(6) };
+    const val = document.getElementById('gpsVal');
+    const dot = document.getElementById('gpsDot');
+    if(val){ val.textContent = `${gpsData.lat}, ${gpsData.lng}`; val.className='gps-val on'; }
+    if(dot){ dot.classList.add('on'); }
+
+    /* 역지오코딩으로 주소도 자동입력 */
+    reverseGeocode(gpsData.lat, gpsData.lng);
+
+    /* 선택한 밸브 키를 전역 보관 (저장 시 완료 표시에 사용) */
+    _pendingValveKey = valveKey;
+
+    showToast('📍 GPS 좌표가 자동입력됐습니다. 대장을 작성 후 저장하세요.');
+  }
+}
+
+/* 현재 입력 중인 밸브 키 (저장 후 완료 표시용) */
+let _pendingValveKey = null;
+
+/* ── 제수밸브 심볼 클릭 핸들러 ── */
+function handleValveClick(lat, lng, isCompleted){
+  const valveKey = lat.toFixed(6)+','+lng.toFixed(6);
+
+  if(isCompleted){
+    /* ── 완료된 밸브: 해당 기록을 대장 입력 탭에서 조회 ── */
+    /* ★ valveKey 정확 매칭으로 찾기 */
+    const seqnoFromMap = window._valveSeqnoMap && window._valveSeqnoMap[valveKey];
+    const surveyed = records.find(r => r.valveKey === valveKey)
+      || (seqnoFromMap ? records.find(r => String(r.seqno) === String(seqnoFromMap)) : null);
+    if(surveyed){
+      loadRecordToForm(surveyed);
+      const formBtn = document.querySelector('.tab-btn[onclick*="form"]');
+      if(formBtn) showTab('form', formBtn);
+      window.scrollTo({top:0, behavior:'smooth'});
+      showToast(`📋 #${surveyed.seqno} ${surveyed.mgmtno||surveyed.addr||''} 기록을 불러왔습니다`);
+    } else {
+      showToast('📋 이미 조사 완료된 밸브입니다');
+    }
+  } else {
+    /* ── 미완료 빨간 밸브: 대장입력 탭으로 이동 + GPS 자동입력 ── */
+    const formBtn = document.querySelector('.tab-btn[onclick*="form"]');
+    if(formBtn) showTab('form', formBtn);
+    window.scrollTo({top:0, behavior:'smooth'});
+
+    /* GPS 좌표 자동입력 */
+    gpsData = { lat: lat.toFixed(6), lng: lng.toFixed(6) };
+    const val = document.getElementById('gpsVal');
+    const dot = document.getElementById('gpsDot');
+    if(val){ val.textContent = `${gpsData.lat}, ${gpsData.lng}`; val.className='gps-val on'; }
+    if(dot){ dot.classList.add('on'); }
+
+    /* 역지오코딩으로 주소도 자동입력 */
+    reverseGeocode(gpsData.lat, gpsData.lng);
+
+    /* 선택한 밸브 키를 전역 보관 (저장 시 완료 표시에 사용) */
+    _pendingValveKey = valveKey;
+
+    showToast('📍 GPS 좌표 자동입력 완료! 대장을 작성 후 저장하세요.');
+  }
 }
 
 /* ── 사진 일괄 다운로드 ── */
