@@ -316,7 +316,7 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 .storage-warn.show{display:flex}
 .vroom-row{display:flex;align-items:center;gap:0;flex-wrap:nowrap;overflow:hidden;padding:4px 6px}
 .vroom-x{padding:0 4px;font-weight:900;color:var(--blue-dark);font-size:14px;flex-shrink:0;opacity:.7}
-.vroom-inp{flex:1;min-width:0;border:2px solid #7bafd4;border-radius:6px;outline:none;font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:700;color:var(--blue-dark);background:#d6eaf8;padding:8px 4px;text-align:center;transition:background .15s,box-shadow .15s,border-color .15s;margin:4px 2px}
+.vroom-inp{flex:1;min-width:0;border:2.5px solid #3a78c9;border-radius:6px;outline:none;font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:700;color:var(--blue-dark);background:#c8dcf0;padding:8px 4px;text-align:center;transition:background .15s,box-shadow .15s,border-color .15s;margin:4px 2px}
 .vroom-inp::placeholder{color:#a0bcd4;font-weight:400;font-size:11px}
 .vroom-inp:focus{background:#fffde7;border-color:#ffc107;box-shadow:0 0 0 3px rgba(255,193,7,.25)}
 .vroom-unit{padding:0 5px;font-size:12px;color:var(--blue-dark);font-weight:900;flex-shrink:0}
@@ -357,7 +357,7 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
   user-select:auto !important;
 }
 
-/* 비고 칸 비활성 클래스 — 맨홀철개/밸브실크기와 동일한 opacity */
+/* 상태 칸 비활성 클래스 — 맨홀철개/밸브실크기와 동일한 opacity */
 #vroom-remark-inp.remark-disabled select{
   background:#f0f0f0;color:#aaa;cursor:not-allowed;pointer-events:none
 }
@@ -455,6 +455,16 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 .list-tab-btn.active{background:var(--blue-dark);color:#fff}
 /* 목록 카드에 작업자 표시 */
 .r-author{font-size:10px;background:rgba(144,202,249,.25);color:var(--blue-dark);padding:2px 6px;border-radius:6px;font-weight:700;flex-shrink:0}
+/* ── 폴더 탭 ── */
+.folder-tabs{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;margin-bottom:10px;scrollbar-width:none}
+.folder-tabs::-webkit-scrollbar{display:none}
+.folder-tab{flex-shrink:0;padding:6px 14px;border-radius:20px;border:1.5px solid var(--blue-mid);background:#fff;color:var(--blue-mid);font-family:'Noto Sans KR',sans-serif;font-size:12px;font-weight:700;cursor:pointer;transition:all .15s;white-space:nowrap}
+.folder-tab.active{background:var(--blue-dark);color:#fff;border-color:var(--blue-dark)}
+.folder-tab.all{border-color:#607d8b;color:#607d8b}
+.folder-tab.all.active{background:#455a64;border-color:#455a64;color:#fff}
+.folder-header{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.folder-header-title{font-size:13px;font-weight:900;color:var(--blue-dark);flex:1}
+.folder-count{font-size:11px;background:var(--blue-pale);color:var(--blue-dark);padding:2px 8px;border-radius:10px;font-weight:700}
 .r-author.mine{background:rgba(46,125,50,.18);color:#2e7d32}
 /* ── 로그인 페이지 ── */
 #page-login{
@@ -736,7 +746,7 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
   <td class="inp" colspan="2">
     <div class="manhole-disabled-wrap">
       <select id="f-manhole" onchange="onManholeChange()">
-        <option value="">-</option><option>648</option><option value="__d__">직접입력...</option>
+        <option value="">-</option><option>648</option><option>648*별도</option><option value="__d__">직접입력...</option>
       </select>
       <div class="dw" id="dw-manhole"><input type="text" placeholder="직접 입력" id="dt-manhole"></div>
       <div class="manhole-disabled-badge" id="manholeDisabledBadge">🚫 소형철개 선택 시 입력불가</div>
@@ -754,7 +764,7 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
       <div class="manhole-disabled-badge" id="protboxDisabledBadge">🚫 맨홀철개 선택 시 입력불가</div>
     </div>
   </td>
-  <td class="lb-vroom" id="vroom-remark-lb">비고</td>
+  <td class="lb-vroom" id="vroom-remark-lb">상태</td>
   <td class="inp" colspan="2" id="vroom-remark-inp" style="position:relative">
     <div class="manhole-disabled-wrap">
       <select id="f-vremark" onchange="chkD(this,'dw-vremark')">
@@ -771,12 +781,15 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
   <td class="lb-vroom">밸브실<br>크기</td>
   <td class="inp" colspan="4" style="padding:0;position:relative">
     <div class="vroom-row">
-      <input class="vroom-inp" type="text" id="f-vroom1" placeholder="0.0">
+      <input class="vroom-inp" type="number" inputmode="decimal" id="f-vroom1" placeholder="0.0" step="0.1" min="0" oninput="syncVroomMm()">
       <span class="vroom-x">×</span>
-      <input class="vroom-inp" type="text" id="f-vroom2" placeholder="0.0">
+      <input class="vroom-inp" type="number" inputmode="decimal" id="f-vroom2" placeholder="0.0" step="0.1" min="0" oninput="syncVroomMm()">
       <span class="vroom-x">×</span>
-      <input class="vroom-inp" type="text" id="f-vroom3" placeholder="0.0">
-      <span class="vroom-unit">m</span>
+      <input class="vroom-inp" type="number" inputmode="decimal" id="f-vroom3" placeholder="0.0" step="0.1" min="0" oninput="syncVroomMm()">
+      <span class="vroom-unit">mm</span>
+    </div>
+    <div id="vroom-mm-preview" style="font-size:10px;color:var(--blue-dark);font-weight:700;text-align:center;padding:0 6px 4px;opacity:.7"></div>
+    <div style="display:none">
     </div>
     <div class="manhole-disabled-badge" id="vroomDisabledBadge">🚫 소형철개 선택 시 입력불가</div>
   </td>
@@ -790,56 +803,46 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 </tr>
 <tr><td class="lb-sec" colspan="6">현장 사진</td></tr>
 <tr>
-  <td colspan="3" style="padding:0;border-right:1px solid #cdd8e8">
-    <div class="photo-title">📷 위치상세도</div>
-    <div class="photo-cell-internal">
-      <div class="ic">🗺️</div><div class="lbl">내부 작업 예정</div>
-      <div class="sub">별도 도면으로<br>관리됩니다</div>
-    </div>
-  </td>
-  <td colspan="3" style="padding:0">
-    <div class="photo-title">📷 위치도</div>
-    <div class="photo-cell-internal">
-      <div class="ic">📍</div><div class="lbl">내부 작업 예정</div>
-      <div class="sub">별도 도면으로<br>관리됩니다</div>
-    </div>
-  </td>
-</tr>
-<tr>
-  <td colspan="3" style="padding:0;border-right:1px solid #cdd8e8">
-    <div class="photo-title">📷 사진대지 (원경)</div>
-    <div class="photo-cell" id="pc2">
-      <input type="file" accept="image/*" capture="environment" id="pf2c" style="display:none" onchange="handlePhoto(event,2)">
-      <input type="file" accept="image/*" id="pf2g" style="display:none" onchange="handlePhoto(event,2)">
-      <div class="ph-ph">
-        <div class="ic">📸</div>
-        <div class="ph-btns">
-          <button class="ph-choice" ontouchstart="" onclick="triggerPhoto(event,'pf2c')">📷 카메라</button>
-          <button class="ph-choice" ontouchstart="" onclick="triggerGallery(event,'pf2g')">🖼️ 갤러리</button>
+  <td colspan="6" style="padding:6px">
+    <div style="display:flex;gap:8px">
+      <!-- 원경 -->
+      <div style="flex:1;min-width:0">
+        <div class="photo-title" style="border-radius:8px 8px 0 0">📷 원경</div>
+        <div class="photo-cell" id="pc2" style="min-height:220px;border-radius:0 0 8px 8px">
+          <input type="file" accept="image/*" capture="environment" id="pf2c" style="display:none" onchange="handlePhoto(event,2)">
+          <input type="file" accept="image/*" id="pf2g" style="display:none" onchange="handlePhoto(event,2)">
+          <div class="ph-ph">
+            <div class="ic">📸</div>
+            <div class="ph-btns" style="flex-direction:column;gap:4px">
+              <button class="ph-choice" ontouchstart="" onclick="triggerPhoto(event,'pf2c')">📷 카메라</button>
+              <button class="ph-choice" ontouchstart="" onclick="triggerGallery(event,'pf2g')">🖼️ 갤러리</button>
+            </div>
+          </div>
+          <img id="pi2" src="" alt="">
+          <div class="photo-size" id="ps2"></div>
+          <button class="ph-del" onclick="delPhoto(event,2)">✕</button>
+          <div class="photo-uploading" id="pu2"><div class="upload-spinner"></div>업로드 중...</div>
         </div>
       </div>
-      <img id="pi2" src="" alt="">
-      <div class="photo-size" id="ps2"></div>
-      <button class="ph-del" onclick="delPhoto(event,2)">✕</button>
-      <div class="photo-uploading" id="pu2"><div class="upload-spinner"></div>업로드 중...</div>
-    </div>
-  </td>
-  <td colspan="3" style="padding:0">
-    <div class="photo-title">📷 사진대지 (근경)</div>
-    <div class="photo-cell" id="pc3">
-      <input type="file" accept="image/*" capture="environment" id="pf3c" style="display:none" onchange="handlePhoto(event,3)">
-      <input type="file" accept="image/*" id="pf3g" style="display:none" onchange="handlePhoto(event,3)">
-      <div class="ph-ph">
-        <div class="ic">🔍</div>
-        <div class="ph-btns">
-          <button class="ph-choice" ontouchstart="" onclick="triggerPhoto(event,'pf3c')">📷 카메라</button>
-          <button class="ph-choice" ontouchstart="" onclick="triggerGallery(event,'pf3g')">🖼️ 갤러리</button>
+      <!-- 근경 -->
+      <div style="flex:1;min-width:0">
+        <div class="photo-title" style="border-radius:8px 8px 0 0">🔍 근경</div>
+        <div class="photo-cell" id="pc3" style="min-height:220px;border-radius:0 0 8px 8px">
+          <input type="file" accept="image/*" capture="environment" id="pf3c" style="display:none" onchange="handlePhoto(event,3)">
+          <input type="file" accept="image/*" id="pf3g" style="display:none" onchange="handlePhoto(event,3)">
+          <div class="ph-ph">
+            <div class="ic">🔍</div>
+            <div class="ph-btns" style="flex-direction:column;gap:4px">
+              <button class="ph-choice" ontouchstart="" onclick="triggerPhoto(event,'pf3c')">📷 카메라</button>
+              <button class="ph-choice" ontouchstart="" onclick="triggerGallery(event,'pf3g')">🖼️ 갤러리</button>
+            </div>
+          </div>
+          <img id="pi3" src="" alt="">
+          <div class="photo-size" id="ps3"></div>
+          <button class="ph-del" onclick="delPhoto(event,3)">✕</button>
+          <div class="photo-uploading" id="pu3"><div class="upload-spinner"></div>업로드 중...</div>
         </div>
       </div>
-      <img id="pi3" src="" alt="">
-      <div class="photo-size" id="ps3"></div>
-      <button class="ph-del" onclick="delPhoto(event,3)">✕</button>
-      <div class="photo-uploading" id="pu3"><div class="upload-spinner"></div>업로드 중...</div>
     </div>
   </td>
 </tr>
@@ -866,12 +869,9 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
       <button class="list-tab-btn active" id="listTabMine" onclick="setListTab('mine')">👤 내 기록</button>
       <button class="list-tab-btn" id="listTabAll" onclick="setListTab('all')">📋 전체 기록</button>
     </div>
+    <!-- 폴더 탭 -->
+    <div class="folder-tabs" id="folderTabs"></div>
     <div class="list-bar">
-      <select id="filterType" onchange="renderList()">
-        <option value="">전체 종류</option>
-        <option>제수밸브</option><option>지수밸브</option><option>소화전</option><option>공기밸브</option>
-        <option>감압밸브</option><option>역지밸브</option><option>이토밸브</option><option>기타</option>
-      </select>
       <button class="exp-btn" onclick="exportExcel()" style="background:linear-gradient(135deg,#2e7d32,#388e3c)">📊 엑셀저장</button>
       <button class="exp-btn" id="photoDownBtn" onclick="downloadAllPhotos()" style="background:linear-gradient(135deg,#1565c0,#1976d2)">📷 사진저장</button>
       <button class="exp-btn" id="deleteModeBtn" onclick="toggleDeleteMode()" style="background:linear-gradient(135deg,#c62828,#e53935)">🗑 삭제</button>
@@ -1080,6 +1080,7 @@ const VFORM_OPTIONS = {
 let photos=[null,null,null,null], gpsData=null, selOCVal='', selValveStateVal='', records=[];
 let currentWorker = '';   /* 현재 작업자 이름 */
 let listTabMode   = 'mine'; /* 'mine' | 'all' */
+let currentFolder = ''; /* '' = 전체, 'PS-1' 등 */
 let isAdmin       = false;  /* 관리자 여부 */
 const ADMIN_PW    = '39448837'; /* 관리자 비밀번호 */
 
@@ -1400,6 +1401,22 @@ function selValveState(v){
   applyVremarkDisabled(selValveStateVal!=='개폐불가');
 }
 
+function syncVroomMm(){
+  const ids = ['f-vroom1','f-vroom2','f-vroom3'];
+  const vals = ids.map(id => {
+    const v = parseFloat(document.getElementById(id).value);
+    return isNaN(v) ? null : Math.round(v * 1000);
+  });
+  const preview = document.getElementById('vroom-mm-preview');
+  if(!preview) return;
+  if(vals.every(v => v === null)){
+    preview.textContent = '';
+  } else {
+    const parts = vals.map(v => v !== null ? v + 'mm' : '?');
+    preview.textContent = '→ ' + parts.join(' × ');
+  }
+}
+
 function applyVremarkDisabled(disabled){
   const sel = document.getElementById('f-vremark');
   const dw  = document.getElementById('dw-vremark');
@@ -1419,7 +1436,7 @@ function applyVremarkDisabled(disabled){
   }
 }
 
-/* 비고 마커 표시 여부 동기화 — 개폐가능(비활성) + 소형/맨홀 값 있을 때만 ON */
+/* 상태 마커 표시 여부 동기화 — 개폐가능(비활성) + 소형/맨홀 값 있을 때만 ON */
 function _syncRemarkBadge(){
   const rb = document.getElementById('remarkDisabledBadge');
   if(!rb) return;
@@ -1659,7 +1676,9 @@ async function saveRecord(){
   if(!g('f-seqno')&&!g('f-mgmtno')){ showToast('⚠️ 조사연번 또는 관리번호를 입력하세요'); return; }
   const seqno=g('f-seqno')||getNextSeqno();
   const vr1=g('f-vroom1'),vr2=g('f-vroom2'),vr3=g('f-vroom3');
-  const vroomSize=(vr1||vr2||vr3)?`${vr1||'?'} × ${vr2||'?'} × ${vr3||'?'} m`:'';
+  /* M → mm 환산해서 저장 */
+  function mToMm(v){ const n=parseFloat(v); return isNaN(n)?'?':Math.round(n*1000)+'mm'; }
+  const vroomSize=(vr1||vr2||vr3)?`${mToMm(vr1)} × ${mToMm(vr2)} × ${mToMm(vr3)}`:'';
 
   const rec={
     id:Date.now(), date:g('f-date'), seqno:parseInt(seqno)||getNextSeqno(), author:currentWorker,
@@ -1805,12 +1824,11 @@ function toggleDeleteMode() {
 
 function selectAllRecords() {
   const btn = document.getElementById('selectAllBtn');
-  const ft = document.getElementById('filterType').value;
   const sq = document.getElementById('searchBox').value.toLowerCase();
   /* 현재 보이는 목록 기준으로 전체선택/전체해제 토글 */
   let visibleList = records;
   if(listTabMode === 'mine' && currentWorker) visibleList = visibleList.filter(r => r.author === currentWorker);
-  if(ft) visibleList = visibleList.filter(r => r.vtype === ft);
+  if(currentFolder) visibleList = visibleList.filter(r => (r.smallblock||'').trim() === currentFolder);
   if(sq) visibleList = visibleList.filter(r =>
     (r.mgmtno||'').toLowerCase().includes(sq) ||
     (r.addr||'').toLowerCase().includes(sq) ||
@@ -1887,13 +1905,45 @@ async function deleteSelected() {
   toggleDeleteMode();
 }
 
+function getFolders(baseList){
+  const seen = new Set();
+  const folders = [];
+  baseList.forEach(r => {
+    const f = (r.smallblock||'').trim();
+    if(f && !seen.has(f)){ seen.add(f); folders.push(f); }
+  });
+  return folders.sort();
+}
+
+function renderFolderTabs(baseList){
+  const folders = getFolders(baseList);
+  const wrap = document.getElementById('folderTabs');
+  if(!wrap) return;
+  if(!folders.length){ wrap.innerHTML=''; return; }
+  wrap.innerHTML = [
+    `<button class="folder-tab all${currentFolder===''?' active':''}" onclick="setFolder('')">📋 전체 <span style="opacity:.7">(${baseList.length})</span></button>`,
+    ...folders.map(f => {
+      const cnt = baseList.filter(r=>(r.smallblock||'').trim()===f).length;
+      return `<button class="folder-tab${currentFolder===f?' active':''}" onclick="setFolder('${f}')">📁 ${f} <span style="opacity:.7">(${cnt})</span></button>`;
+    })
+  ].join('');
+}
+
+function setFolder(f){
+  currentFolder = f;
+  renderList();
+}
+
 function renderList(){
-  const ft=document.getElementById('filterType').value, sq=document.getElementById('searchBox').value.toLowerCase();
+  const sq=document.getElementById('searchBox').value.toLowerCase();
   let list=records;
   /* 내 기록 탭 필터 */
   if(listTabMode === 'mine' && currentWorker)
     list = list.filter(r => r.author === currentWorker);
-  if(ft) list=list.filter(r=>r.vtype===ft);
+  /* 폴더 탭 렌더링 (내 기록/전체 기준) */
+  renderFolderTabs(list);
+  /* 폴더 필터 */
+  if(currentFolder) list=list.filter(r=>(r.smallblock||'').trim()===currentFolder);
   if(sq) list=list.filter(r=>(r.mgmtno||'').toLowerCase().includes(sq)||(r.addr||'').toLowerCase().includes(sq)||String(r.seqno||'').includes(sq));
   /* 통계: 일반 사용자는 본인 기록 기준 */
   const statBase = isAdmin ? records : records.filter(r => r.author === currentWorker);
@@ -1904,7 +1954,7 @@ function renderList(){
   const c=document.getElementById('listContainer');
   if(!list.length){ c.innerHTML='<div class="no-rec"><div class="ic">📭</div>기록이 없습니다</div>'; return; }
   c.innerHTML=list.map(r=>{
-    const title = r.mgmtno ? r.mgmtno : `조사연번 #${r.seqno||'?'}`;
+    const title = r.addr ? r.addr : (r.mgmtno ? r.mgmtno : `조사연번 #${r.seqno||'?'}`);
     const isSelected = selectedIds.has(r.id);
     const cardClick = deleteMode ? `toggleSelectCard(${r.id}, event)` : `openDetail(${r.id})`;
     return `
@@ -1933,7 +1983,7 @@ function renderList(){
 /* ── 상세 모달 ── */
 function openDetail(id){
   const r=records.find(x=>x.id===id); if(!r) return;
-  document.getElementById('mTitle').textContent=`${r.mgmtno || '조사연번 #'+r.seqno} — ${r.date}`;
+  document.getElementById('mTitle').textContent=`${r.addr || r.mgmtno || '조사연번 #'+r.seqno} — ${r.date}`;
   const ocB=r.openclosed==='OPEN'?`<span style="color:#2e7d32;font-weight:900">🟢 OPEN</span>`:r.openclosed==='CLOSE'?`<span style="color:#c62828;font-weight:900">🔴 CLOSE</span>`:'-';
   const pLb=['위치상세도','위치도','사진(원경)','사진(근경)'];
   const vp=(r.photos||[]).map((p,i)=>({src:p,lb:pLb[i]})).filter(x=>x.src);
