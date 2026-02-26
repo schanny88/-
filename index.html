@@ -6,6 +6,7 @@
 <title>밸브류 관리대장 v1.2</title>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
 <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=3ddc7a06a7a28f64a2db46512879c789&libraries=services"></script>
 <script type="module">
@@ -58,6 +59,8 @@ if (db) {
         const idx = window._records
           ? window._records.findIndex(r => String(r.id) === String(fb.id))
           : -1;
+        /* 삭제 진행 중인 레코드는 복원하지 않음 */
+        if (window._deletingIds && window._deletingIds.has(String(fb.id))) return;
         if (idx >= 0) {
           const localPhotos = window._records[idx].photos;
           window._records[idx] = {
@@ -82,6 +85,9 @@ if (db) {
     }
   );
 }
+
+/* 삭제 진행 중인 ID 추적 — onSnapshot 복원 방지 */
+window._deletingIds = new Set();
 
 window.fbUploadPhotos = async function(rec) {
   if (!storage) return;
@@ -143,6 +149,8 @@ window.fbSaveRecord = async function(rec) {
 
 window.fbDeleteRecord = async function(rec) {
   if (!db) return;
+  /* 삭제 진행 중 표시 — onSnapshot 복원 방지 */
+  if (window._deletingIds) window._deletingIds.add(String(rec.id));
   try {
     if (storage) {
       const seqno = rec.seqno;
@@ -155,9 +163,12 @@ window.fbDeleteRecord = async function(rec) {
     }
     await deleteDoc(doc(db, 'valve-records', String(rec.id)));
     setFbStatus('☁️', '#a5d6a7');
+    console.log('🗑 Firestore 삭제 완료:', rec.seqno);
   } catch(e) {
     console.warn('삭제 오류:', e);
     setFbStatus('⚠️', '#ffb74d');
+    /* 실패 시 deletingIds에서 제거 (재시도 가능하도록) */
+    if (window._deletingIds) window._deletingIds.delete(String(rec.id));
   }
 };
 
@@ -743,6 +754,7 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
         <option>감압밸브</option><option>역지밸브</option><option>이토밸브</option><option>기타</option>
       </select>
       <button class="exp-btn" onclick="exportExcel()" style="background:linear-gradient(135deg,#2e7d32,#388e3c)">📊 엑셀저장</button>
+      <button class="exp-btn" id="photoDownBtn" onclick="downloadAllPhotos()" style="background:linear-gradient(135deg,#1565c0,#1976d2)">📷 사진저장</button>
       <button class="exp-btn" id="deleteModeBtn" onclick="toggleDeleteMode()" style="background:linear-gradient(135deg,#c62828,#e53935)">🗑 삭제</button>
     </div>
     <div id="deleteActionBar" style="display:none;background:#ffebee;border:1px solid #ef9a9a;border-radius:10px;padding:10px 14px;margin-bottom:10px;align-items:center;justify-content:space-between;gap:8px">
@@ -1596,6 +1608,31 @@ function toggleDeleteMode() {
   renderList();
 }
 
+function selectAllRecords() {
+  const btn = document.getElementById('selectAllBtn');
+  const ft = document.getElementById('filterType').value;
+  const sq = document.getElementById('searchBox').value.toLowerCase();
+  /* 현재 보이는 목록 기준으로 전체선택/전체해제 토글 */
+  let visibleList = records;
+  if(listTabMode === 'mine' && currentWorker) visibleList = visibleList.filter(r => r.author === currentWorker);
+  if(ft) visibleList = visibleList.filter(r => r.vtype === ft);
+  if(sq) visibleList = visibleList.filter(r =>
+    (r.mgmtno||'').toLowerCase().includes(sq) ||
+    (r.addr||'').toLowerCase().includes(sq) ||
+    String(r.seqno).includes(sq)
+  );
+  const allSelected = visibleList.every(r => selectedIds.has(r.id));
+  if(allSelected){
+    visibleList.forEach(r => selectedIds.delete(r.id));
+    btn.textContent = '전체선택';
+  } else {
+    visibleList.forEach(r => selectedIds.add(r.id));
+    btn.textContent = '전체해제';
+  }
+  updateDeleteCount();
+  renderList();
+}
+
 function toggleSelectCard(id, e) {
   e.stopPropagation();
   if (selectedIds.has(id)) selectedIds.delete(id);
@@ -1612,12 +1649,21 @@ async function deleteSelected() {
   if (!selectedIds.size) { showToast('삭제할 항목을 선택하세요'); return; }
   if (!confirm(`선택한 ${selectedIds.size}건을 삭제할까요?`)) return;
   const toDelete = records.filter(r => selectedIds.has(r.id));
+  /* 로컬에서 먼저 제거 */
   records = records.filter(r => !selectedIds.has(r.id));
-  saveRecords(); updateBadge();
+  saveRecords(); renderList(); updateBadge();
+  /* Firebase 삭제 (순차 처리 — 병렬 시 충돌 방지) */
+  let failCount = 0;
   for (const rec of toDelete) {
-    if (window.fbDeleteRecord) await window.fbDeleteRecord(rec);
+    try {
+      if (window.fbDeleteRecord) await window.fbDeleteRecord(rec);
+    } catch(e) {
+      failCount++;
+      console.warn('삭제 실패:', rec.seqno, e);
+    }
   }
-  showToast(`🗑 ${toDelete.length}건 삭제 완료`);
+  if(failCount > 0) showToast(`⚠️ ${toDelete.length - failCount}건 삭제, ${failCount}건 실패`);
+  else showToast(`🗑 ${toDelete.length}건 삭제 완료`);
   toggleDeleteMode();
 }
 
@@ -1733,6 +1779,65 @@ function renderMapTab(){
       </div>
       <span style="font-size:10px;background:var(--blue-light);color:var(--blue-dark);padding:2px 7px;border-radius:5px;font-weight:700">${r.vtype||'?'}</span>
     </div>`).join('');
+}
+
+/* ── 사진 일괄 다운로드 ── */
+async function downloadAllPhotos(){
+  if(!records.length){ showToast('다운로드할 기록이 없습니다'); return; }
+  if(typeof JSZip === 'undefined'){ showToast('⏳ 라이브러리 로딩 중... 잠시 후 다시 눌러주세요'); return; }
+
+  const btn = document.getElementById('photoDownBtn');
+  btn.disabled = true; btn.textContent = '⏳ 준비 중...';
+
+  /* Storage URL이 있는 사진만 수집 */
+  const photoList = [];
+  records.forEach(r => {
+    (r.photos || []).forEach(p => {
+      if(p && p.startsWith('http')) photoList.push({ url: p });
+    });
+  });
+
+  if(!photoList.length){
+    showToast('⚠️ 서버에 저장된 사진이 없습니다');
+    btn.disabled = false; btn.textContent = '📷 사진저장';
+    return;
+  }
+
+  const zip = new JSZip();
+  let done = 0;
+
+  for(const item of photoList){
+    try{
+      btn.textContent = '⏳ ' + (done+1) + '/' + photoList.length + ' 다운로드 중...';
+      const res = await fetch(item.url);
+      const blob = await res.blob();
+      /* Storage 경로에서 파일명 추출: photos/1-3 → 1-3.jpg */
+      const urlPath = decodeURIComponent(item.url.split('/o/')[1].split('?')[0]);
+      const fileName = urlPath.replace('photos/', '') + '.jpg';
+      zip.file(fileName, blob);
+      done++;
+    } catch(e){
+      console.warn('사진 다운로드 실패:', item.url, e);
+    }
+  }
+
+  if(done === 0){
+    showToast('❌ 사진 다운로드에 실패했습니다');
+    btn.disabled = false; btn.textContent = '📷 사진저장';
+    return;
+  }
+
+  btn.textContent = '⏳ ZIP 생성 중...';
+  const zipBlob = await zip.generateAsync({ type: 'blob' });
+  const fileName = '밸브사진_' + new Date().toISOString().split('T')[0] + '.zip';
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(zipBlob);
+  a.download = fileName;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); document.body.removeChild(a); }, 1500);
+
+  showToast('📷 사진 ' + done + '장 ZIP 저장 완료!');
+  btn.disabled = false; btn.textContent = '📷 사진저장';
 }
 
 /* ── 엑셀 내보내기 ── */
