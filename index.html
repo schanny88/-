@@ -46,37 +46,24 @@ try {
   setFbStatus('❌', '#ef9a9a');
 }
 
-/* ── Firestore 실시간 동기화 ── */
+/* ── Firestore 실시간 동기화 (Firebase를 정답으로 덮어쓰기) ── */
 if (db) {
   onSnapshot(collection(db, 'valve-records'),
     (snapshot) => {
       setFbStatus('☁️', '#a5d6a7');
-      if (!snapshot || !window._records) return;
+      if (!snapshot) return;
 
-      snapshot.docChanges().forEach(change => {
-        const fb = change.doc.data();
+      /* Firebase 전체 데이터를 정답으로 사용 — 삭제 진행 중인 ID만 제외 */
+      const fbRecords = [];
+      snapshot.forEach(d => {
+        const fb = d.data();
         const idStr = String(fb.id);
-        const idx = window._records.findIndex(r => String(r.id) === idStr);
-
-        if (change.type === 'added' || change.type === 'modified') {
-          /* 삭제 진행 중인 레코드는 무시 */
-          if (window._deletingIds && window._deletingIds.has(idStr)) return;
-          if (idx >= 0) {
-            const localPhotos = window._records[idx].photos;
-            window._records[idx] = {
-              ...fb,
-              photos: localPhotos || fb.photos || [null,null,null,null]
-            };
-          } else {
-            window._records.push(fb);
-          }
-        } else if (change.type === 'removed') {
-          /* Firebase에서 삭제된 경우 로컬에서도 제거 */
-          if (idx >= 0) window._records.splice(idx, 1);
-          if (window._deletingIds) window._deletingIds.delete(idStr);
-        }
+        if (window._deletingIds && window._deletingIds.has(idStr)) return;
+        fbRecords.push(fb);
       });
 
+      /* 로컬을 Firebase 데이터로 완전 교체 */
+      window._records = fbRecords;
       window._records.sort((a,b) => (parseInt(a.seqno)||0)-(parseInt(b.seqno)||0));
       try { localStorage.setItem('valve-v7', JSON.stringify(window._records)); } catch(e) {}
       if (window.renderList)  window.renderList();
