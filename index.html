@@ -1159,6 +1159,11 @@ function applyRoleUI(){
   if(adminTabBtn) adminTabBtn.style.display = isAdmin ? '' : 'none';
   /* 일반 사용자는 mine 탭 고정 */
   if(!isAdmin){ listTabMode = 'mine'; }
+  /* 엑셀/사진 버튼 — 일반 사용자: 내 기록만 표시로 안내 */
+  const excelBtn = document.querySelector('.exp-btn[onclick="exportExcel()"]');
+  const photoBtn = document.getElementById('photoDownBtn');
+  if(excelBtn) excelBtn.textContent = isAdmin ? '📊 엑셀저장 (전체)' : '📊 엑셀저장 (내 기록)';
+  if(photoBtn) photoBtn.textContent = isAdmin ? '📷 사진저장 (전체)' : '📷 사진저장 (내 기록)';
 }
 function setListTab(mode){
   listTabMode = mode;
@@ -2203,15 +2208,20 @@ function renderMapTab(){
 
 /* ── 사진 일괄 다운로드 ── */
 async function downloadAllPhotos(){
-  if(!records.length){ showToast('다운로드할 기록이 없습니다'); return; }
+  /* 일반 사용자: 본인 기록만, 관리자: 전체 */
+  const targetRecords = isAdmin
+    ? records
+    : records.filter(r => r.author === currentWorker);
+
+  if(!targetRecords.length){ showToast('다운로드할 기록이 없습니다'); return; }
   if(typeof JSZip === 'undefined'){ showToast('⏳ 라이브러리 로딩 중... 잠시 후 다시 눌러주세요'); return; }
 
   const btn = document.getElementById('photoDownBtn');
   btn.disabled = true; btn.textContent = '⏳ 준비 중...';
 
-  /* Storage URL이 있는 사진만 수집 */
+  /* Storage URL이 있는 사진만 수집 (본인 기록 기준) */
   const photoList = [];
-  records.forEach(r => {
+  targetRecords.forEach(r => {
     (r.photos || []).forEach(p => {
       if(p && p.startsWith('http')) photoList.push({ url: p });
     });
@@ -2249,7 +2259,8 @@ async function downloadAllPhotos(){
 
   btn.textContent = '⏳ ZIP 생성 중...';
   const zipBlob = await zip.generateAsync({ type: 'blob' });
-  const fileName = '밸브사진_' + new Date().toISOString().split('T')[0] + '.zip';
+  const workerTag = isAdmin ? '전체' : currentWorker;
+  const fileName = `밸브사진_${workerTag}_` + new Date().toISOString().split('T')[0] + '.zip';
 
   if (window.showSaveFilePicker) {
     try {
@@ -2285,11 +2296,17 @@ async function downloadAllPhotos(){
 
 /* ── 엑셀 내보내기 ── */
 async function exportExcel(){
-  if(!records.length){ showToast('내보낼 기록이 없습니다'); return; }
+  /* 일반 사용자: 본인 기록만, 관리자: 전체 */
+  const targetRecords = isAdmin
+    ? records
+    : records.filter(r => r.author === currentWorker);
+
+  if(!targetRecords.length){ showToast('내보낼 기록이 없습니다'); return; }
   if(typeof ExcelJS === 'undefined'){ showToast('⏳ 라이브러리 로딩 중... 잠시 후 다시 눌러주세요'); return; }
 
-  const sorted   = [...records].sort((a,b)=>(parseInt(a.seqno)||0)-(parseInt(b.seqno)||0));
-  const fileName = `밸브류관리대장_${new Date().toISOString().split('T')[0]}.xlsx`;
+  const sorted   = [...targetRecords].sort((a,b)=>(parseInt(a.seqno)||0)-(parseInt(b.seqno)||0));
+  const workerTag = isAdmin ? '전체' : currentWorker;
+  const fileName = `밸브류관리대장_${workerTag}_${new Date().toISOString().split('T')[0]}.xlsx`;
 
   const wb = new ExcelJS.Workbook();
   wb.creator = '밸브류관리대장';
@@ -2419,13 +2436,18 @@ async function exportExcel(){
 
 /* ── JSON 백업 / 불러오기 ── */
 function exportJSON(){
-  if(!records.length){ showToast('내보낼 기록이 없습니다'); return; }
-  const blob=new Blob([JSON.stringify({version:1,exportedAt:new Date().toISOString(),records},null,2)],{type:'application/json'});
+  /* 일반 사용자: 본인 기록만, 관리자: 전체 */
+  const targetRecords = isAdmin
+    ? records
+    : records.filter(r => r.author === currentWorker);
+  if(!targetRecords.length){ showToast('내보낼 기록이 없습니다'); return; }
+  const workerTag = isAdmin ? '전체' : currentWorker;
+  const blob=new Blob([JSON.stringify({version:1,exportedAt:new Date().toISOString(),records:targetRecords},null,2)],{type:'application/json'});
   const url=URL.createObjectURL(blob), a=document.createElement('a');
-  a.href=url; a.download=`밸브대장_백업_${new Date().toISOString().split('T')[0]}.json`;
+  a.href=url; a.download=`밸브대장_백업_${workerTag}_${new Date().toISOString().split('T')[0]}.json`;
   document.body.appendChild(a); a.click();
   setTimeout(()=>{ URL.revokeObjectURL(url); document.body.removeChild(a); },1500);
-  showToast(`💾 백업 완료! ${records.length}건`);
+  showToast(`💾 백업 완료! ${targetRecords.length}건`);
 }
 function importJSON(e){
   const file=e.target.files[0]; if(!file) return;
