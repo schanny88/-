@@ -13,7 +13,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
 import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, writeBatch }
   from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
-import { getStorage, ref, uploadString, getDownloadURL, deleteObject }
+import { getStorage, ref, uploadString, getDownloadURL, deleteObject, getBytes }
   from "https://www.gstatic.com/firebasejs/10.14.1/firebase-storage.js";
 
 const firebaseConfig = {
@@ -210,6 +210,40 @@ window.fbGetUsers = async function() {
     snap.forEach(d => users.push(d.data()));
     return users;
   } catch(e) { console.warn('fbGetUsers 오류:', e); return []; }
+};
+
+/* ── GeoJSON → Firebase Storage 업로드 (관리자 전용) ── */
+window.fbUploadGeoJSON = async function(layerKey, data) {
+  if (!storage) return false;
+  try {
+    const fileName = `geojson/${layerKey}.geojson`;
+    const storageRef = ref(storage, fileName);
+    await uploadString(storageRef, JSON.stringify(data), 'raw', { contentType: 'application/json' });
+    console.log(`✅ GeoJSON Storage 업로드 완료: ${fileName}`);
+    return true;
+  } catch(e) {
+    console.warn('GeoJSON 업로드 오류:', e);
+    return false;
+  }
+};
+
+/* ── Firebase Storage에서 GeoJSON 다운로드 (getBytes — CORS 없음) ── */
+window.fbDownloadGeoJSON = async function(layerKey) {
+  if (!storage) return null;
+  try {
+    const fileName = `geojson/${layerKey}.geojson`;
+    const storageRef = ref(storage, fileName);
+    /* getBytes: Firebase SDK 직접 사용 → CORS 문제 없음 */
+    const bytes = await getBytes(storageRef);
+    const text  = new TextDecoder('utf-8').decode(bytes);
+    const data  = JSON.parse(text);
+    return data;
+  } catch(e) {
+    if (e.code !== 'storage/object-not-found') {
+      console.warn(`GeoJSON 다운로드 오류 (${layerKey}):`, e);
+    }
+    return null;
+  }
 };
 
 console.log('✅ Firebase 모듈 로드 완료');
@@ -535,9 +569,9 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
     </div>
   </div>
   <div class="tab-bar">
-    <button class="tab-btn active" onclick="showTab('form',this)">📋 대장 입력</button>
+    <button class="tab-btn active" onclick="showTab('map',this)">🗺️ GPS 지도</button>
+    <button class="tab-btn" onclick="showTab('form',this)">📋 대장 입력</button>
     <button class="tab-btn" onclick="showTab('list',this)">📁 기록 목록</button>
-    <button class="tab-btn" onclick="showTab('map',this)">🗺️ GPS 지도</button>
     <button class="tab-btn" id="adminTabBtn" onclick="showTab('admin',this)" style="display:none">👑 관리자</button>
   </div>
 </div>
@@ -583,7 +617,7 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 <div class="storage-warn" id="storageWarn">⚠️ <span id="storageWarnMsg"></span></div>
 
 <!-- 대장 입력 -->
-<div class="page active" id="page-form">
+<div class="page" id="page-form">
 <div class="dj-wrap">
 <div class="doc-title">밸 브 류  관 리 대 장</div>
 <table class="dj-table">
@@ -891,19 +925,22 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 </div>
 
 <!-- GPS 지도 -->
-<div class="page" id="page-map">
+<div class="page active" id="page-map">
   <div class="map-pg">
 
     <!-- 관망도 레이어 패널 -->
     <div style="background:#f0f4fb;border:1.5px solid #c5d8f0;border-radius:10px;padding:10px 14px;margin-bottom:10px;">
-      <div style="font-size:13px;font-weight:700;color:var(--blue-dark);margin-bottom:8px;">🗺 관망도 레이어</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+        <div style="font-size:13px;font-weight:700;color:var(--blue-dark);">🗺 관망도 레이어</div>
+        <button onclick="syncLayersFromServer()" style="font-size:11px;padding:4px 10px;border-radius:6px;background:#1a4fa0;color:#fff;border:none;cursor:pointer;font-weight:700;">🔄 서버에서 받기</button>
+      </div>
 
       <!-- 배수관로 레이어 -->
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
         <span style="display:inline-block;width:28px;height:4px;background:#1a6bc9;border-radius:2px;flex-shrink:0"></span>
         <span style="font-size:12px;font-weight:700;flex:1">배수관로</span>
         <span id="pipeFileName" style="font-size:10px;color:var(--muted)">미로드</span>
-        <label for="pipeInput" style="cursor:pointer;background:#e8f0fa;color:var(--blue-dark);font-size:11px;font-weight:700;padding:4px 10px;border-radius:6px;border:1px solid #c5d8f0;">📂 불러오기</label>
+        <label for="pipeInput" id="pipeUploadLabel" style="cursor:pointer;background:#e8f0fa;color:var(--blue-dark);font-size:11px;font-weight:700;padding:4px 10px;border-radius:6px;border:1px solid #c5d8f0;display:none">👑 업로드</label>
         <input type="file" id="pipeInput" accept=".geojson,.json" style="display:none" onchange="loadLayerGeoJSON('pipe',this)">
         <button onclick="toggleLayer('pipe')" id="pipeToggleBtn" style="font-size:11px;padding:4px 12px;border-radius:6px;background:#22a745;color:#fff;border:none;cursor:pointer;font-weight:700;">ON</button>
         <button onclick="clearLayer('pipe')" style="font-size:11px;padding:4px 8px;border-radius:6px;background:#eee;border:none;cursor:pointer;color:#888;">✕</button>
@@ -911,10 +948,10 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 
       <!-- 제수밸브 레이어 -->
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-        <span style="display:inline-block;width:12px;height:12px;background:#e53935;border-radius:50%;border:2px solid #b71c1c;flex-shrink:0"></span>
+        <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABCGlDQ1BJQ0MgUHJvZmlsZQAAeJxjYGA8wQAELAYMDLl5JUVB7k4KEZFRCuwPGBiBEAwSk4sLGHADoKpv1yBqL+viUYcLcKakFicD6Q9ArFIEtBxopAiQLZIOYWuA2EkQtg2IXV5SUAJkB4DYRSFBzkB2CpCtkY7ETkJiJxcUgdT3ANk2uTmlyQh3M/Ck5oUGA2kOIJZhKGYIYnBncAL5H6IkfxEDg8VXBgbmCQixpJkMDNtbGRgkbiHEVBYwMPC3MDBsO48QQ4RJQWJRIliIBYiZ0tIYGD4tZ2DgjWRgEL7AwMAVDQsIHG5TALvNnSEfCNMZchhSgSKeDHkMyQx6QJYRgwGDIYMZAKbWPz9HbOBQAAAEbklEQVR4nO2WT2wbRRTGvze7jtOQpiqQpm5iu268tjFpod2iHhByQVzgUAGSUyFOqBJwgQNFHJtwgPJXQkggiqIiWnGJqciFAIckcpsWIWJARbRex2roOlL/QdWSpm3snXkcbFeOHDt2eiiHfpfV7mje93u7783MAndVQwzQnWYAA+J2YwwAoulkGKDvI6bndiEaMa4KXjbcPD8/NOOPPEuAmoLpatZ8AjGdAB7tDm05GYh+UBl7OWoNAGZ9xo8XfCHntD+8EwCagSjHSPoinvP+0OVzXuN45fNKLUXEACAFzZ3XxCtu5i+sgPHYdqQKE4jpjZgTICe9wd5uqKNXIIYdIXKVsZcDKA4wVrfqrvF/Se12Kxo55YtsexxJhxGvyqKs4Vvm4Q0eQccKivZfaNfeBrC2pk+tAUUsWSrPw2ezv80xvdQGHv89EAkREnIpCAZEPyCPdG1at16oSQht3wOz1sENNx0vM2TTAKWoeQbEZts6cp3ptXapJn4K9HUREnK44nsyIAhQo8Fgx0Nu7ShYfNw7kx4aBjSp9EI9i2WrkgCVCQbd0Vz6UF7hnXWycPyHnui9/YBkQAyUzD/q6Vll5GmSSPsqaFufZIJBdz9qZ94wAAAY2WxhCqYrOpv59AbzkCHk5HA02g6ABwE+YJptz4i2E4LESO/Z9P4pmC4jm62beVMAALAdqQLDdPXlMu/mGd9sveacSMTj4mWY+hOXrqV0YKz3rLVvCqZrO1INmQNAzbZyGO5r6sZqAEiUVjRCqsCI6ZRL7rN6wu1bfzl5uM+rVhG07/y29QYjphOSi8wdcN3VsB6A06m1VFX7IJKKAY1mrddnvKGrbUQd3XZaJwAJJKv6fIGkukm8pnRbNb4UAAFAqyauEvOiT8S33gTktDc8ViAMORqdmfaG/hzJt5q7L5ycHwDEW4Aqm7kdeV0nTQKAaBCg5MZUuZeUzIkAlfWFxgm41GtbewHglDfk39WycGzaNHcMplJO0ato1tmChbyDfC2bhoqwEyAgLghQZ3zhbwXEuV7b2j0B6AzTFc1l3mTg+N6Lc0ep2BlIlGIvMFO9XbEhgO5gUCMk5F++yNcOwJvs9AsMaDsBWS7MSM56VQCnLG94jAAVj8UaOgMssxIyMSBC2ezCtC9ysABeG7Kt50qbkqLSayYkJSOmG7nMHkH4J+MzRimZdBgQxPW7oC6AjuJKOOOPHHCBewzberqYeVLS4oJiICkZcc2wrX4daE37wsMEKFIuwXVasSYAg8QlXV6c9kfeB6ttG23rKQZoEGBaopqLzxKKAbHJnn6yBSpw2h9+7+8O9yytpAbmpcyvd1yfM3Pfxhef38GAGgSo1GJLqlyADPBUu+tRnTm25krhMwZdrjWnShOl1rQ3GqOzvtAfQFxjgAaaWLbLR69DXVvusX0h64zXyJUAKy41VDY6EXhwz4cez/2VAZtRec7PGx6571d/5PCXfn8rGgFYItCK/w8q5zadBK/kPF8D4s7/4dzV/1n/ARwFzPKsd0uFAAAAAElFTkSuQmCC" style="width:12px;height:12px;flex-shrink:0">
         <span style="font-size:12px;font-weight:700;flex:1">제수밸브</span>
         <span id="valveFileName" style="font-size:10px;color:var(--muted)">미로드</span>
-        <label for="valveInput" style="cursor:pointer;background:#faeaea;color:#c62828;font-size:11px;font-weight:700;padding:4px 10px;border-radius:6px;border:1px solid #f5c6c6;">📂 불러오기</label>
+        <label for="valveInput" id="valveUploadLabel" style="cursor:pointer;background:#faeaea;color:#c62828;font-size:11px;font-weight:700;padding:4px 10px;border-radius:6px;border:1px solid #f5c6c6;display:none">👑 업로드</label>
         <input type="file" id="valveInput" accept=".geojson,.json" style="display:none" onchange="loadLayerGeoJSON('valve',this)">
         <button onclick="toggleLayer('valve')" id="valveToggleBtn" style="font-size:11px;padding:4px 12px;border-radius:6px;background:#22a745;color:#fff;border:none;cursor:pointer;font-weight:700;">ON</button>
         <button onclick="clearLayer('valve')" style="font-size:11px;padding:4px 8px;border-radius:6px;background:#eee;border:none;cursor:pointer;color:#888;">✕</button>
@@ -946,8 +983,8 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
         배수관로
       </span>
       <span style="display:flex;align-items:center;gap:4px;font-size:11px;">
-        <span style="display:inline-block;width:12px;height:12px;background:#e53935;border-radius:50%;border:2px solid #b71c1c"></span>
-        제수밸브
+        <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABCGlDQ1BJQ0MgUHJvZmlsZQAAeJxjYGA8wQAELAYMDLl5JUVB7k4KEZFRCuwPGBiBEAwSk4sLGHADoKpv1yBqL+viUYcLcKakFicD6Q9ArFIEtBxopAiQLZIOYWuA2EkQtg2IXV5SUAJkB4DYRSFBzkB2CpCtkY7ETkJiJxcUgdT3ANk2uTmlyQh3M/Ck5oUGA2kOIJZhKGYIYnBncAL5H6IkfxEDg8VXBgbmCQixpJkMDNtbGRgkbiHEVBYwMPC3MDBsO48QQ4RJQWJRIliIBYiZ0tIYGD4tZ2DgjWRgEL7AwMAVDQsIHG5TALvNnSEfCNMZchhSgSKeDHkMyQx6QJYRgwGDIYMZAKbWPz9HbOBQAAAEbklEQVR4nO2WT2wbRRTGvze7jtOQpiqQpm5iu268tjFpod2iHhByQVzgUAGSUyFOqBJwgQNFHJtwgPJXQkggiqIiWnGJqciFAIckcpsWIWJARbRex2roOlL/QdWSpm3snXkcbFeOHDt2eiiHfpfV7mje93u7783MAndVQwzQnWYAA+J2YwwAoulkGKDvI6bndiEaMa4KXjbcPD8/NOOPPEuAmoLpatZ8AjGdAB7tDm05GYh+UBl7OWoNAGZ9xo8XfCHntD+8EwCagSjHSPoinvP+0OVzXuN45fNKLUXEACAFzZ3XxCtu5i+sgPHYdqQKE4jpjZgTICe9wd5uqKNXIIYdIXKVsZcDKA4wVrfqrvF/Se12Kxo55YtsexxJhxGvyqKs4Vvm4Q0eQccKivZfaNfeBrC2pk+tAUUsWSrPw2ezv80xvdQGHv89EAkREnIpCAZEPyCPdG1at16oSQht3wOz1sENNx0vM2TTAKWoeQbEZts6cp3ptXapJn4K9HUREnK44nsyIAhQo8Fgx0Nu7ShYfNw7kx4aBjSp9EI9i2WrkgCVCQbd0Vz6UF7hnXWycPyHnui9/YBkQAyUzD/q6Vll5GmSSPsqaFufZIJBdz9qZ94wAAAY2WxhCqYrOpv59AbzkCHk5HA02g6ABwE+YJptz4i2E4LESO/Z9P4pmC4jm62beVMAALAdqQLDdPXlMu/mGd9sveacSMTj4mWY+hOXrqV0YKz3rLVvCqZrO1INmQNAzbZyGO5r6sZqAEiUVjRCqsCI6ZRL7rN6wu1bfzl5uM+rVhG07/y29QYjphOSi8wdcN3VsB6A06m1VFX7IJKKAY1mrddnvKGrbUQd3XZaJwAJJKv6fIGkukm8pnRbNb4UAAFAqyauEvOiT8S33gTktDc8ViAMORqdmfaG/hzJt5q7L5ycHwDEW4Aqm7kdeV0nTQKAaBCg5MZUuZeUzIkAlfWFxgm41GtbewHglDfk39WycGzaNHcMplJO0ato1tmChbyDfC2bhoqwEyAgLghQZ3zhbwXEuV7b2j0B6AzTFc1l3mTg+N6Lc0ep2BlIlGIvMFO9XbEhgO5gUCMk5F++yNcOwJvs9AsMaDsBWS7MSM56VQCnLG94jAAVj8UaOgMssxIyMSBC2ezCtC9ysABeG7Kt50qbkqLSayYkJSOmG7nMHkH4J+MzRimZdBgQxPW7oC6AjuJKOOOPHHCBewzberqYeVLS4oJiICkZcc2wrX4daE37wsMEKFIuwXVasSYAg8QlXV6c9kfeB6ttG23rKQZoEGBaopqLzxKKAbHJnn6yBSpw2h9+7+8O9yytpAbmpcyvd1yfM3Pfxhef38GAGgSo1GJLqlyADPBUu+tRnTm25krhMwZdrjWnShOl1rQ3GqOzvtAfQFxjgAaaWLbLR69DXVvusX0h64zXyJUAKy41VDY6EXhwz4cez/2VAZtRec7PGx6571d/5PCXfn8rGgFYItCK/w8q5zadBK/kPF8D4s7/4dzV/1n/ARwFzPKsd0uFAAAAAElFTkSuQmCC" style="width:14px;height:14px">
+        미조사
       </span>
       <span id="mapSummaryBadge" style="margin-left:auto;font-size:11px;color:var(--muted)"></span>
     </div>
@@ -1169,8 +1206,10 @@ function startWorkerSession(){
   document.getElementById('page-login').style.display = 'none';
   document.getElementById('appHeader').style.display = '';
   document.querySelectorAll('.page').forEach(p => { if(p.id !== 'page-login') p.style.visibility = ''; });
-  /* IndexedDB에서 저장된 레이어 자동 복원 */
-  loadLayersFromIDB();
+  /* 첫 탭 = 지도로 전환 후 레이어 로드 */
+  const mapBtn = document.querySelector('.tab-btn[onclick*="map"]');
+  if(mapBtn) showTab('map', mapBtn);
+  loadLayersFromIDB().then(() => renderMapTab());
 }
 function changeWorker(){
   document.getElementById('workerNameInput').value = currentWorker;
@@ -1217,6 +1256,11 @@ function applyRoleUI(){
   const photoBtn = document.getElementById('photoDownBtn');
   if(excelBtn) excelBtn.textContent = isAdmin ? '📊 엑셀저장 (전체)' : '📊 엑셀저장 (내 기록)';
   if(photoBtn) photoBtn.textContent = isAdmin ? '📷 사진저장 (전체)' : '📷 사진저장 (내 기록)';
+  /* GeoJSON 업로드 버튼: 관리자만 표시 */
+  const pipeLabel  = document.getElementById('pipeUploadLabel');
+  const valveLabel = document.getElementById('valveUploadLabel');
+  if(pipeLabel)  pipeLabel.style.display  = isAdmin ? '' : 'none';
+  if(valveLabel) valveLabel.style.display = isAdmin ? '' : 'none';
 }
 function setListTab(mode){
   listTabMode = mode;
@@ -1246,6 +1290,8 @@ function init(){
     document.getElementById('appHeader').style.display = '';
     applyRoleUI();
     if(window.fbLogUser) window.fbLogUser(currentWorker);
+    /* 첫 탭이 지도이므로 초기 렌더링 */
+    loadLayersFromIDB().then(() => renderMapTab());
   } else {
     /* 첫 접속: 헤더 숨기고 로그인 페이지 표시 */
     document.getElementById('appHeader').style.display = 'none';
@@ -2149,6 +2195,8 @@ let _activeInfoOverlay = null;
 let _selectedSeqno = null;
 
 /* ── 관망도 레이어 상태 ── */
+/* 제수밸브 심볼 이미지 (Base64 내장) */
+const VALVE_SYMBOL_IMG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABCGlDQ1BJQ0MgUHJvZmlsZQAAeJxjYGA8wQAELAYMDLl5JUVB7k4KEZFRCuwPGBiBEAwSk4sLGHADoKpv1yBqL+viUYcLcKakFicD6Q9ArFIEtBxopAiQLZIOYWuA2EkQtg2IXV5SUAJkB4DYRSFBzkB2CpCtkY7ETkJiJxcUgdT3ANk2uTmlyQh3M/Ck5oUGA2kOIJZhKGYIYnBncAL5H6IkfxEDg8VXBgbmCQixpJkMDNtbGRgkbiHEVBYwMPC3MDBsO48QQ4RJQWJRIliIBYiZ0tIYGD4tZ2DgjWRgEL7AwMAVDQsIHG5TALvNnSEfCNMZchhSgSKeDHkMyQx6QJYRgwGDIYMZAKbWPz9HbOBQAAAEbklEQVR4nO2WT2wbRRTGvze7jtOQpiqQpm5iu268tjFpod2iHhByQVzgUAGSUyFOqBJwgQNFHJtwgPJXQkggiqIiWnGJqciFAIckcpsWIWJARbRex2roOlL/QdWSpm3snXkcbFeOHDt2eiiHfpfV7mje93u7783MAndVQwzQnWYAA+J2YwwAoulkGKDvI6bndiEaMa4KXjbcPD8/NOOPPEuAmoLpatZ8AjGdAB7tDm05GYh+UBl7OWoNAGZ9xo8XfCHntD+8EwCagSjHSPoinvP+0OVzXuN45fNKLUXEACAFzZ3XxCtu5i+sgPHYdqQKE4jpjZgTICe9wd5uqKNXIIYdIXKVsZcDKA4wVrfqrvF/Se12Kxo55YtsexxJhxGvyqKs4Vvm4Q0eQccKivZfaNfeBrC2pk+tAUUsWSrPw2ezv80xvdQGHv89EAkREnIpCAZEPyCPdG1at16oSQht3wOz1sENNx0vM2TTAKWoeQbEZts6cp3ptXapJn4K9HUREnK44nsyIAhQo8Fgx0Nu7ShYfNw7kx4aBjSp9EI9i2WrkgCVCQbd0Vz6UF7hnXWycPyHnui9/YBkQAyUzD/q6Vll5GmSSPsqaFufZIJBdz9qZ94wAAAY2WxhCqYrOpv59AbzkCHk5HA02g6ABwE+YJptz4i2E4LESO/Z9P4pmC4jm62beVMAALAdqQLDdPXlMu/mGd9sveacSMTj4mWY+hOXrqV0YKz3rLVvCqZrO1INmQNAzbZyGO5r6sZqAEiUVjRCqsCI6ZRL7rN6wu1bfzl5uM+rVhG07/y29QYjphOSi8wdcN3VsB6A06m1VFX7IJKKAY1mrddnvKGrbUQd3XZaJwAJJKv6fIGkukm8pnRbNb4UAAFAqyauEvOiT8S33gTktDc8ViAMORqdmfaG/hzJt5q7L5ycHwDEW4Aqm7kdeV0nTQKAaBCg5MZUuZeUzIkAlfWFxgm41GtbewHglDfk39WycGzaNHcMplJO0ato1tmChbyDfC2bhoqwEyAgLghQZ3zhbwXEuV7b2j0B6AzTFc1l3mTg+N6Lc0ep2BlIlGIvMFO9XbEhgO5gUCMk5F++yNcOwJvs9AsMaDsBWS7MSM56VQCnLG94jAAVj8UaOgMssxIyMSBC2ezCtC9ysABeG7Kt50qbkqLSayYkJSOmG7nMHkH4J+MzRimZdBgQxPW7oC6AjuJKOOOPHHCBewzberqYeVLS4oJiICkZcc2wrX4daE37wsMEKFIuwXVasSYAg8QlXV6c9kfeB6ttG23rKQZoEGBaopqLzxKKAbHJnn6yBSpw2h9+7+8O9yytpAbmpcyvd1yfM3Pfxhef38GAGgSo1GJLqlyADPBUu+tRnTm25krhMwZdrjWnShOl1rQ3GqOzvtAfQFxjgAaaWLbLR69DXVvusX0h64zXyJUAKy41VDY6EXhwz4cez/2VAZtRec7PGx6571d/5PCXfn8rGgFYItCK/w8q5zadBK/kPF8D4s7/4dzV/1n/ARwFzPKsd0uFAAAAAElFTkSuQmCC';
 const _layers = {
   pipe:  { data: null, overlays: [], visible: true },
   valve: { data: null, overlays: [], visible: true },
@@ -2195,17 +2243,35 @@ async function _idbDel(key){
   });
 }
 
-/* 앱 시작 시 IndexedDB에서 레이어 자동 복원 */
+/* 앱 시작 시 레이어 자동 로드: IDB 캐시 우선, 없으면 Firebase Storage에서 다운로드 */
 async function loadLayersFromIDB(){
   try {
     for(const key of ['pipe','valve']){
-      const stored = await _idbGet('layer_'+key);
+      const nameEl = document.getElementById(key==='pipe'?'pipeFileName':'valveFileName');
+      const btn    = document.getElementById(key+'ToggleBtn');
+
+      /* 1단계: IndexedDB 캐시 확인 */
+      let stored = await _idbGet('layer_'+key);
+
+      /* 2단계: IDB에 없으면 Firebase Storage에서 자동 다운로드 */
+      if(!stored){
+        if(nameEl) nameEl.textContent = '⬇️ 서버에서 받는 중...';
+        const fbData = window.fbDownloadGeoJSON ? await window.fbDownloadGeoJSON(key) : null;
+        if(fbData){
+          stored = fbData;
+          /* IDB에도 캐시 저장 */
+          _idbSet('layer_'+key, stored).catch(()=>{});
+          showToast(`☁️ ${key==='pipe'?'배수관로':'제수밸브'} 서버에서 자동 로드됨`);
+        }
+      }
+
       if(stored){
-        _layers[key].data = stored;
-        const nameEl = document.getElementById(key==='pipe'?'pipeFileName':'valveFileName');
-        if(nameEl) nameEl.textContent = stored.features.length.toLocaleString()+'개 (저장됨)';
-        const btn = document.getElementById(key+'ToggleBtn');
+        _layers[key].data    = stored;
+        _layers[key].visible = true;
+        if(nameEl) nameEl.textContent = stored.features.length.toLocaleString()+'개 ☁️';
         if(btn){ btn.textContent='ON'; btn.style.background='#22a745'; }
+      } else {
+        if(nameEl) nameEl.textContent = '미로드';
       }
     }
     const saved = await _idbGet('completedValves');
@@ -2214,6 +2280,38 @@ async function loadLayersFromIDB(){
     if(savedSeqMap) window._valveSeqnoMap = savedSeqMap;
     if(_kakaoMap) renderLayerOverlays(0);
   } catch(e){ console.warn('IDB 복원 실패:', e); }
+}
+
+/* 수동 서버 동기화 (🔄 서버에서 받기 버튼) */
+async function syncLayersFromServer(){
+  if(!window.fbDownloadGeoJSON){ showToast('⚠️ Firebase 연결 필요'); return; }
+  let count = 0;
+  for(const key of ['pipe','valve']){
+    const label  = key==='pipe' ? '배수관로' : '제수밸브';
+    const nameEl = document.getElementById(key==='pipe'?'pipeFileName':'valveFileName');
+    const btn    = document.getElementById(key+'ToggleBtn');
+    if(nameEl) nameEl.textContent = '⬇️ 받는 중...';
+    showToast(`⬇️ ${label} 다운로드 중... (최대 수십초 소요)`);
+    const data = await window.fbDownloadGeoJSON(key);
+    if(data){
+      _layers[key].data    = data;
+      _layers[key].visible = true;
+      if(nameEl) nameEl.textContent = data.features.length.toLocaleString()+'개 ☁️';
+      if(btn){ btn.textContent='ON'; btn.style.background='#22a745'; }
+      showToast(`✅ ${label} ${data.features.length.toLocaleString()}개 수신 완료 — 기기에 저장 중...`);
+      _idbSet('layer_'+key, data).catch(()=>{});
+      count++;
+    } else {
+      if(nameEl) nameEl.textContent = '서버에 없음';
+    }
+  }
+  if(count > 0){
+    showToast(`☁️ 관망도 ${count}개 레이어 완료! 다음부터는 자동 로드됩니다.`);
+    if(_kakaoMap) renderLayerOverlays(0);
+    else initMapForLayers();
+  } else {
+    showToast('⚠️ 서버에 저장된 관망도가 없습니다. 관리자에게 문의하세요.');
+  }
 }
 
 function focusMapMarker(seqno){
@@ -2447,7 +2545,7 @@ function loadLayerGeoJSON(layerKey, input){
   const nameEl = document.getElementById(layerKey==='pipe' ? 'pipeFileName' : 'valveFileName');
   nameEl.textContent = '⏳ 로딩 중...';
   const reader = new FileReader();
-  reader.onload = e => {
+  reader.onload = async e => {
     try{
       const data = JSON.parse(e.target.result);
       if(!data.type || !data.features){ showToast('⚠️ 유효한 GeoJSON 파일이 아닙니다'); nameEl.textContent='오류'; return; }
@@ -2457,10 +2555,25 @@ function loadLayerGeoJSON(layerKey, input){
       if(btn){ btn.textContent='ON'; btn.style.background='#22a745'; }
       nameEl.textContent = `${data.features.length.toLocaleString()}개`;
       showToast(`✅ ${layerKey==='pipe'?'배수관로':'제수밸브'} 로드 완료 — ${data.features.length.toLocaleString()}개`);
-      /* IndexedDB에 저장 → 다음 접속 시 자동 복원 */
-      _idbSet('layer_'+layerKey, data)
-        .then(()=> showToast('💾 기기에 저장됨 — 다음부터 자동 로드'))
-        .catch(()=>{});
+
+      /* IndexedDB에 저장 → 이 기기 다음 접속 시 자동 복원 */
+      _idbSet('layer_'+layerKey, data).catch(()=>{});
+
+      /* 관리자면 Firebase Storage에도 업로드 → 다른 모든 기기 자동 수신 */
+      if(isAdmin && window.fbUploadGeoJSON){
+        nameEl.textContent = `${data.features.length.toLocaleString()}개 ⬆️ 서버 업로드 중...`;
+        const ok = await window.fbUploadGeoJSON(layerKey, data);
+        if(ok){
+          nameEl.textContent = `${data.features.length.toLocaleString()}개 ☁️`;
+          showToast(`☁️ 서버 업로드 완료! 다른 기기에서도 자동 로드됩니다`);
+        } else {
+          nameEl.textContent = `${data.features.length.toLocaleString()}개 ⚠️`;
+          showToast(`⚠️ 서버 업로드 실패 — 이 기기에만 저장됨`);
+        }
+      } else {
+        showToast('💾 기기에 저장됨');
+      }
+
       /* 지도가 이미 초기화된 경우 바로 렌더링 */
       if(_kakaoMap) renderLayerOverlays(0);
       /* 지도가 없으면 GPS 기록 없어도 지도 탭 강제 초기화 */
@@ -2583,43 +2696,43 @@ function _doRenderLayers(){
   valve.overlays.forEach(o => o.setMap(null));
   valve.overlays = [];
   if(valve.data && valve.visible && zoomLevel <= 5){
-    const dotSize = zoomLevel <= 3 ? 10 : 7;
+    const imgSize = zoomLevel <= 3 ? 18 : 14;
     valve.data.features.forEach(feat => {
       const geom = feat.geometry;
       if(!geom || geom.type !== 'Point') return;
       const [lng, lat] = geom.coordinates;
-      if(!inBounds(lat, lng)) return; /* 뷰포트 밖이면 스킵 */
+      if(!inBounds(lat, lng)) return;
       const pos = new kakao.maps.LatLng(lat, lng);
       const valveKey = lat.toFixed(6)+','+lng.toFixed(6);
-      /* ★ 정확한 valveKey 매칭 — GPS 오차범위 비교 제거 */
       const surveyedRec = records.find(r => r.valveKey === valveKey);
       const isSurveyed = !!surveyedRec;
       const isCompleted = isSurveyed || _completedValves.has(valveKey);
-      const color  = isCompleted ? '#22a745' : '#e53935';
-      const border = isCompleted ? '#157335' : '#b71c1c';
-
-      /* 완료된 경우 조사연번 표시 */
       const seqnoFromMap = window._valveSeqnoMap && window._valveSeqnoMap[valveKey];
       const displaySeqno = surveyedRec ? surveyedRec.seqno : (seqnoFromMap || null);
 
-      /* 완료: 연번 라벨 / 미완료: 원형 도트 */
+      /* 완료: 초록 틴트 + 연번 라벨 / 미조사: 원본 빨간 심볼 */
       let dotContent;
       if(isCompleted && displaySeqno){
-        dotContent = `<div
-          onclick="handleValveClick(${lat},${lng},${isCompleted})"
+        dotContent = `<div onclick="handleValveClick(${lat},${lng},${isCompleted})"
           title="✅ 완료 (#${displaySeqno}) - 클릭하면 내역 조회"
-          style="background:${color};color:#fff;
-            font-family:'Noto Sans KR',sans-serif;font-weight:700;font-size:10px;
-            padding:3px 7px;border-radius:5px;white-space:nowrap;
-            border:1.5px solid ${border};box-shadow:0 1px 4px rgba(0,0,0,.3);cursor:pointer;
-            transition:background .2s">#${displaySeqno}</div>`;
+          style="display:flex;flex-direction:column;align-items:center;cursor:pointer;">
+          <img src="${VALVE_SYMBOL_IMG}" style="width:${imgSize}px;height:${imgSize}px;filter:invert(40%) sepia(100%) saturate(400%) hue-rotate(90deg) brightness(1.1);display:block;">
+          <div style="background:#22a745;color:#fff;font-family:'Noto Sans KR',sans-serif;font-weight:700;font-size:9px;
+            padding:1px 5px;border-radius:3px;margin-top:1px;white-space:nowrap;
+            box-shadow:0 1px 3px rgba(0,0,0,.3)">#${displaySeqno}</div>
+        </div>`;
+      } else if(isCompleted){
+        dotContent = `<div onclick="handleValveClick(${lat},${lng},${isCompleted})"
+          title="✅ 완료 - 클릭하면 내역 조회"
+          style="cursor:pointer;">
+          <img src="${VALVE_SYMBOL_IMG}" style="width:${imgSize}px;height:${imgSize}px;filter:invert(40%) sepia(100%) saturate(400%) hue-rotate(90deg) brightness(1.1);display:block;">
+        </div>`;
       } else {
-        dotContent = `<div
-          onclick="handleValveClick(${lat},${lng},${isCompleted})"
-          title="${isCompleted ? '✅ 완료 - 클릭하면 내역 조회' : '📋 미조사 - 클릭하면 대장입력'}"
-          style="width:${dotSize}px;height:${dotSize}px;background:${color};border-radius:50%;
-            border:2px solid ${border};box-shadow:0 1px 4px rgba(0,0,0,.3);cursor:pointer;
-            transition:background .2s"></div>`;
+        dotContent = `<div onclick="handleValveClick(${lat},${lng},${isCompleted})"
+          title="📋 미조사 - 클릭하면 대장입력"
+          style="cursor:pointer;">
+          <img src="${VALVE_SYMBOL_IMG}" style="width:${imgSize}px;height:${imgSize}px;display:block;">
+        </div>`;
       }
 
       const dot = new kakao.maps.CustomOverlay({
