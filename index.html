@@ -865,10 +865,13 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
         <div>GPS 기록이 없어요</div>
         <div style="font-size:11px;margin-top:4px">대장 입력에서 위치를 수신하면 여기에 표시돼요</div>
       </div>
-      <iframe id="gpsMap" style="display:none;width:100%;height:380px;border:none"></iframe>
+      <div id="gpsMap" style="display:none;width:100%;height:380px;border-radius:10px;overflow:hidden"></div>
     </div>
     <div class="map-legend">
-      <h4>📍 GPS 등록 목록</h4>
+      <h4 style="display:flex;align-items:center;gap:8px;">
+        📍 GPS 등록 목록
+        <span id="gpsCountBadge" style="background:var(--blue-dark);color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px">0개</span>
+      </h4>
       <div id="mapList" style="display:flex;flex-direction:column;gap:6px;margin-top:4px"></div>
     </div>
   </div>
@@ -1823,10 +1826,12 @@ function renderList(){
     list = list.filter(r => r.author === currentWorker);
   if(ft) list=list.filter(r=>r.vtype===ft);
   if(sq) list=list.filter(r=>(r.mgmtno||'').toLowerCase().includes(sq)||(r.addr||'').toLowerCase().includes(sq)||String(r.seqno||'').includes(sq));
-  document.getElementById('statTotal').textContent=records.length;
-  document.getElementById('statOpen').textContent=records.filter(r=>r.openclosed==='OPEN').length;
-  document.getElementById('statClose').textContent=records.filter(r=>r.openclosed==='CLOSE').length;
-  document.getElementById('statGps').textContent=records.filter(r=>r.gps).length;
+  /* 통계: 일반 사용자는 본인 기록 기준 */
+  const statBase = isAdmin ? records : records.filter(r => r.author === currentWorker);
+  document.getElementById('statTotal').textContent=statBase.length;
+  document.getElementById('statOpen').textContent=statBase.filter(r=>r.openclosed==='OPEN').length;
+  document.getElementById('statClose').textContent=statBase.filter(r=>r.openclosed==='CLOSE').length;
+  document.getElementById('statGps').textContent=statBase.filter(r=>r.gps).length;
   const c=document.getElementById('listContainer');
   if(!list.length){ c.innerHTML='<div class="no-rec"><div class="ic">📭</div>기록이 없습니다</div>'; return; }
   c.innerHTML=list.map(r=>{
@@ -1912,20 +1917,132 @@ function deleteRecord(id){
 }
 
 /* ── GPS 지도 ── */
+let _kakaoMap = null;
+let _kakaoOverlays = [];
+let _activeInfoOverlay = null;
+let _selectedSeqno = null;
+
+function focusMapMarker(seqno){
+  const r = records.find(r => String(r.seqno) === String(seqno));
+  if(!r || !_kakaoMap) return;
+
+  /* 지도 이동 */
+  const pos = new kakao.maps.LatLng(r.gpsLat, r.gpsLng);
+  _kakaoMap.setCenter(pos);
+  _kakaoMap.setLevel(3);
+
+  /* 기존 선택 해제 */
+  if(_activeInfoOverlay){ _activeInfoOverlay.setMap(null); _activeInfoOverlay = null; }
+  _selectedSeqno = String(seqno);
+
+  /* 선택된 마커 강조 + 정보창 */
+  renderMapTab();
+
+  /* 목록 하이라이트 */
+  document.querySelectorAll('.map-list-item').forEach(el => {
+    el.style.background = el.dataset.seqno === String(seqno) ? '#dde8f5' : '#f7f9fc';
+    el.style.borderColor = el.dataset.seqno === String(seqno) ? 'var(--blue-mid)' : 'var(--border)';
+  });
+}
+
 function renderMapTab(){
-  const gr=records.filter(r=>r.gpsLat&&r.gpsLng);
-  const mapEmpty=document.getElementById('mapEmpty'), gpsMap=document.getElementById('gpsMap'), mapList=document.getElementById('mapList');
-  if(!gr.length){ mapEmpty.style.display='flex'; gpsMap.style.display='none'; mapList.innerHTML='<div style="font-size:12px;color:var(--muted);text-align:center;padding:16px">GPS 데이터가 있는 기록이 없어요</div>'; return; }
-  mapEmpty.style.display='none'; gpsMap.style.display='block';
-  const c=gr[0]; gpsMap.src=`https://maps.google.com/maps?q=${c.gpsLat},${c.gpsLng}&z=15&output=embed`;
-  mapList.innerHTML=gr.map((r,i)=>`
-    <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:#f7f9fc;border-radius:8px;border:1px solid var(--border)">
-      <div style="min-width:24px;height:24px;border-radius:50%;background:var(--blue-dark);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center">${i+1}</div>
+  const gr = records.filter(r => r.gpsLat && r.gpsLng);
+  const mapEmpty = document.getElementById('mapEmpty');
+  const gpsMap   = document.getElementById('gpsMap');
+  const mapList  = document.getElementById('mapList');
+  const badge    = document.getElementById('gpsCountBadge');
+
+  if(badge) badge.textContent = gr.length + '개';
+
+  if(!gr.length){
+    mapEmpty.style.display = 'flex';
+    gpsMap.style.display   = 'none';
+    mapList.innerHTML = '<div style="font-size:12px;color:var(--muted);text-align:center;padding:16px">GPS 데이터가 있는 기록이 없어요</div>';
+    return;
+  }
+
+  mapEmpty.style.display = 'none';
+  gpsMap.style.display   = 'block';
+
+  /* ── 카카오맵 초기화 ── */
+  const center = new kakao.maps.LatLng(gr[0].gpsLat, gr[0].gpsLng);
+  if(!_kakaoMap){
+    _kakaoMap = new kakao.maps.Map(gpsMap, { center, level: 4 });
+  } else {
+    _kakaoOverlays.forEach(o => o.setMap(null));
+    _kakaoOverlays = [];
+  }
+
+  /* ── 커스텀 마커 ── */
+  gr.forEach(r => {
+    const pos = new kakao.maps.LatLng(r.gpsLat, r.gpsLng);
+    const isSelected = String(r.seqno) === _selectedSeqno;
+    const bg    = isSelected ? '#c62828' : '#1a4fa0';
+    const border= isSelected ? '#7f0000' : '#0d3170';
+    const size  = isSelected ? 'font-size:12px;padding:5px 10px;' : 'font-size:11px;padding:4px 8px;';
+
+    /* 겹침 처리: zIndex를 seqno 기반으로 설정, 선택된 건 최상위 */
+    const zIdx = isSelected ? 99 : (parseInt(r.seqno) || 0);
+
+    const content = `
+      <div data-seqno="${r.seqno}" onclick="focusMapMarker(${r.seqno})" style="
+        position:relative;display:flex;flex-direction:column;align-items:center;
+        cursor:pointer;z-index:${zIdx};
+      ">
+        <div style="
+          background:${bg};color:#fff;
+          font-family:'Noto Sans KR',sans-serif;font-weight:700;
+          ${size}
+          border-radius:6px;white-space:nowrap;
+          box-shadow:0 2px 8px rgba(13,49,112,.4);
+          border:1.5px solid ${border};
+          transition:all .15s;
+        ">#${r.seqno}</div>
+        <div style="width:0;height:0;
+          border-left:5px solid transparent;border-right:5px solid transparent;
+          border-top:7px solid ${bg};margin-top:-1px;
+        "></div>
+        ${isSelected ? `<div style="
+          position:absolute;top:-36px;
+          background:#fff;border:1.5px solid #c62828;border-radius:8px;
+          padding:4px 8px;font-size:10px;font-weight:700;color:#c62828;
+          white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.15);
+        ">${r.mgmtno||r.addr||'위치 확인'}</div>` : ''}
+      </div>`;
+
+    const overlay = new kakao.maps.CustomOverlay({
+      position: pos, content, yAnchor: 1.0, zIndex: zIdx,
+    });
+    overlay.setMap(_kakaoMap);
+    _kakaoOverlays.push(overlay);
+  });
+
+  /* 전체 bounds 조정 (선택된 게 없을 때만) */
+  if(!_selectedSeqno && gr.length > 1){
+    const bounds = new kakao.maps.LatLngBounds();
+    gr.forEach(r => bounds.extend(new kakao.maps.LatLng(r.gpsLat, r.gpsLng)));
+    _kakaoMap.setBounds(bounds);
+  }
+
+  /* ── 목록 렌더링 ── */
+  mapList.innerHTML = gr.map((r) => `
+    <div class="map-list-item" data-seqno="${r.seqno}"
+      onclick="focusMapMarker(${r.seqno})"
+      style="display:flex;align-items:center;gap:10px;padding:8px 10px;
+        background:${String(r.seqno)===_selectedSeqno?'#dde8f5':'#f7f9fc'};
+        border-radius:8px;border:1px solid ${String(r.seqno)===_selectedSeqno?'var(--blue-mid)':'var(--border)'};
+        cursor:pointer;transition:background .15s;">
+      <div style="min-width:24px;height:24px;border-radius:50%;
+        background:${String(r.seqno)===_selectedSeqno?'var(--red)':'var(--blue-dark)'};
+        color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center">
+        ${r.seqno}
+      </div>
       <div style="flex:1;min-width:0">
-        <div style="font-size:12px;font-weight:700">${r.mgmtno||'조사연번 #'+r.seqno} <span style="color:var(--muted);font-weight:400">#${r.seqno}</span></div>
-        <div style="font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace;margin-top:1px">${r.gpsLat}, ${r.gpsLng}</div>
+        <div style="font-size:12px;font-weight:700">${r.mgmtno||'관리번호 없음'} <span style="color:var(--muted);font-weight:400">#${r.seqno}</span></div>
+        <div style="font-size:10px;color:var(--muted);margin-top:1px">${r.addr||''}</div>
       </div>
       <span style="font-size:10px;background:var(--blue-light);color:var(--blue-dark);padding:2px 7px;border-radius:5px;font-weight:700">${r.vtype||'?'}</span>
+      <span style="font-size:10px;color:var(--muted)">📍</span>
     </div>`).join('');
 }
 
@@ -2207,7 +2324,7 @@ function closeMobileNotice(){
 }
 
 /* ── 유틸 ── */
-function updateBadge(){ document.getElementById('recordCount').textContent=`${records.length}건`; }
+function updateBadge(){ const base = isAdmin ? records : records.filter(r => r.author === currentWorker); document.getElementById('recordCount').textContent=`${base.length}건`; }
 async function renderAdminTab(){
   if(!isAdmin) return;
   /* 통계 */
