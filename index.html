@@ -1236,7 +1236,7 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
       </div>
 
       <!-- 제수밸브 레이어 -->
-      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
         <svg width="12" height="12" viewBox="0 0 22 22" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0">
           <rect x="1.5" y="1.5" width="19" height="19" fill="none" stroke="#c62828" stroke-width="2"/>
           <polygon points="2,2 11,11 2,20" fill="#e53935" stroke="#c62828" stroke-width="1.2"/>
@@ -1252,18 +1252,77 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
         <button onclick="clearLayer('valve')" style="font-size:11px;padding:4px 8px;border-radius:6px;background:#eee;border:none;cursor:pointer;color:#888;">✕</button>
       </div>
 
+      <!-- 공기밸브 레이어 -->
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
+        <span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#ff6f00;border:2px solid #e65100;flex-shrink:0"></span>
+        <span style="font-size:12px;font-weight:700;flex:1">공기밸브</span>
+        <span id="airvalveFileName" style="font-size:10px;color:var(--muted)">미로드</span>
+        <label for="airvalveInput" id="airvalveUploadLabel" style="cursor:pointer;background:#fff3e0;color:#e65100;font-size:11px;font-weight:700;padding:4px 10px;border-radius:6px;border:1px solid #ffcc80;display:none">👑 업로드</label>
+        <input type="file" id="airvalveInput" accept=".geojson,.json" style="display:none" onchange="loadLayerGeoJSON('airvalve',this)">
+        <button onclick="toggleLayer('airvalve')" id="airvalveToggleBtn" style="font-size:11px;padding:4px 12px;border-radius:6px;background:#22a745;color:#fff;border:none;cursor:pointer;font-weight:700;">ON</button>
+        <button onclick="clearLayer('airvalve')" style="font-size:11px;padding:4px 8px;border-radius:6px;background:#eee;border:none;cursor:pointer;color:#888;">✕</button>
+      </div>
+
+      <!-- 소화전 레이어 -->
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
+        <span style="display:inline-block;width:12px;height:12px;background:#d32f2f;clip-path:polygon(50% 0%,100% 38%,82% 100%,18% 100%,0% 38%);flex-shrink:0"></span>
+        <span style="font-size:12px;font-weight:700;flex:1">소화전</span>
+        <span id="hydrantFileName" style="font-size:10px;color:var(--muted)">미로드</span>
+        <label for="hydrantInput" id="hydrantUploadLabel" style="cursor:pointer;background:#ffebee;color:#c62828;font-size:11px;font-weight:700;padding:4px 10px;border-radius:6px;border:1px solid #ef9a9a;display:none">👑 업로드</label>
+        <input type="file" id="hydrantInput" accept=".geojson,.json" style="display:none" onchange="loadLayerGeoJSON('hydrant',this)">
+        <button onclick="toggleLayer('hydrant')" id="hydrantToggleBtn" style="font-size:11px;padding:4px 12px;border-radius:6px;background:#22a745;color:#fff;border:none;cursor:pointer;font-weight:700;">ON</button>
+        <button onclick="clearLayer('hydrant')" style="font-size:11px;padding:4px 8px;border-radius:6px;background:#eee;border:none;cursor:pointer;color:#888;">✕</button>
+      </div>
+
+      <!-- 이토밸브 레이어 -->
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <svg width="12" height="12" viewBox="0 0 12 12" style="flex-shrink:0">
+          <polygon points="6,0 12,12 0,12" fill="#6a1b9a" stroke="#4a148c" stroke-width="1"/>
+        </svg>
+        <span style="font-size:12px;font-weight:700;flex:1">이토밸브</span>
+        <span id="drainvalveFileName" style="font-size:10px;color:var(--muted)">미로드</span>
+        <label for="drainvalveInput" id="drainvalveUploadLabel" style="cursor:pointer;background:#f3e5f5;color:#6a1b9a;font-size:11px;font-weight:700;padding:4px 10px;border-radius:6px;border:1px solid #ce93d8;display:none">👑 업로드</label>
+        <input type="file" id="drainvalveInput" accept=".geojson,.json" style="display:none" onchange="loadLayerGeoJSON('drainvalve',this)">
+        <button onclick="toggleLayer('drainvalve')" id="drainvalveToggleBtn" style="font-size:11px;padding:4px 12px;border-radius:6px;background:#22a745;color:#fff;border:none;cursor:pointer;font-weight:700;">ON</button>
+        <button onclick="clearLayer('drainvalve')" style="font-size:11px;padding:4px 8px;border-radius:6px;background:#eee;border:none;cursor:pointer;color:#888;">✕</button>
+      </div>
+
       <div style="font-size:10px;color:var(--muted);margin-top:8px;line-height:1.6">
         💡 줌 레벨 4 이상에서 배수관로 표시 &nbsp;|&nbsp; 줌 레벨 3 이상에서 제수밸브 표시
       </div>
     </div>
 
-    <div class="map-container">
+    <div class="map-container" style="position:relative;">
       <div class="map-empty" id="mapEmpty">
         <div class="ic">📍</div>
         <div>GPS 기록이 없어요</div>
         <div style="font-size:11px;margin-top:4px">대장 입력에서 위치를 수신하면 여기에 표시돼요</div>
       </div>
       <div id="gpsMap" style="display:none;width:100%;height:380px;border-radius:10px;overflow:hidden;transition:height .3s ease"></div>
+      <!-- 현재 내 위치 버튼 (지도 우하단 플로팅) -->
+      <button id="myLocationBtn" onclick="goToMyLocation()"
+        title="현재 내 위치로 이동"
+        style="
+          display:none;
+          position:absolute;
+          bottom:14px; right:14px;
+          z-index:1000;
+          width:44px; height:44px;
+          border-radius:50%;
+          background:#fff;
+          border:1.5px solid #cdd8e8;
+          box-shadow:0 3px 12px rgba(0,0,0,.22);
+          font-size:20px;
+          cursor:pointer;
+          display:flex; align-items:center; justify-content:center;
+          transition:box-shadow .15s, transform .15s;
+        "
+        onmousedown="this.style.transform='scale(.92)'"
+        onmouseup="this.style.transform=''"
+        ontouchstart="this.style.transform='scale(.92)'"
+        ontouchend="this.style.transform=''">
+        📍
+      </button>
     </div>
 
     <!-- 지도 범례 -->
@@ -1288,6 +1347,18 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
         미조사
       </span>
       <span id="mapSummaryBadge" style="margin-left:auto;font-size:11px;color:var(--muted)"></span>
+      <span style="display:flex;align-items:center;gap:4px;font-size:11px;">
+        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#ff6f00;border:1.5px solid #e65100"></span>
+        공기밸브
+      </span>
+      <span style="display:flex;align-items:center;gap:4px;font-size:11px;">
+        <span style="display:inline-block;width:10px;height:10px;background:#d32f2f;clip-path:polygon(50% 0%,100% 38%,82% 100%,18% 100%,0% 38%)"></span>
+        소화전
+      </span>
+      <span style="display:flex;align-items:center;gap:4px;font-size:11px;">
+        <svg width="10" height="10" viewBox="0 0 10 10"><polygon points="5,0 10,10 0,10" fill="#6a1b9a"/></svg>
+        이토밸브
+      </span>
     </div>
 
     <div class="map-legend" id="mapLegendBox">
@@ -1325,8 +1396,10 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
     <input class="login-input" type="text" id="workerNameInput"
       placeholder="이름 입력" maxlength="10"
       inputmode="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
-      oninput="onWorkerNameInput(this.value)"
-      onkeydown="if(event.key==='Enter' && loginMode) startWorkerSession()">
+      oninput="if(!_imeComposing) onWorkerNameInput(this.value)"
+      oncompositionstart="_imeComposing=true"
+      oncompositionend="_imeComposing=false; onWorkerNameInput(this.value)"
+      onkeydown="if(event.key==='Enter' && loginMode && !_imeComposing) startWorkerSession()">
     <input class="login-input" type="password" id="workerPwInput"
       placeholder="관리자 비밀번호"
       style="display:none"
@@ -1490,6 +1563,7 @@ const VFORM_OPTIONS = {
 };
 
 let photos=[null,null,null,null], gpsData=null, selOCVal='', selValveStateVal='', records=[];
+let _imeComposing = false;  /* 한글 IME 조합 중 플래그 */
 let currentWorker = '';   /* 현재 작업자 이름 */
 let listTabMode   = 'mine'; /* 'mine' | 'all' */
 let currentFolder = ''; /* '' = 전체, 'PS-1' 등 */
@@ -1622,6 +1696,10 @@ function applyRoleUI(){
   const valveLabel = document.getElementById('valveUploadLabel');
   if(pipeLabel)  pipeLabel.style.display  = isAdmin ? '' : 'none';
   if(valveLabel) valveLabel.style.display = isAdmin ? '' : 'none';
+  ['airvalveUploadLabel','hydrantUploadLabel','drainvalveUploadLabel'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) el.style.display = isAdmin ? '' : 'none';
+  });
 }
 function setListTab(mode){
   listTabMode = mode;
@@ -2056,7 +2134,7 @@ function getGPS(){
 function showGuide(msg){ const g=document.getElementById('gpsGuide'); document.getElementById('gpsGuideMsg').innerHTML=msg.replace(/\n/g,'<br>'); g.classList.add('show'); g.scrollIntoView({behavior:'smooth',block:'nearest'}); }
 
 /* ── 카카오맵 역지오코딩 ── */
-async function reverseGeocode(lat, lng) {
+async function reverseGeocode(lat, lng, forceSet) {
   try {
     if (typeof kakao === 'undefined' || !kakao.maps || !kakao.maps.services) {
       showToast('⚠️ 카카오맵 로드 실패 — 좌표만 저장됩니다');
@@ -2070,9 +2148,10 @@ async function reverseGeocode(lat, lng) {
         const addr   = (road ? road.address_name : '') || (parcel ? parcel.address_name : '');
         if (addr) {
           const addrEl = document.getElementById('f-addr');
-          if (!addrEl.value) addrEl.value = addr;
+          /* forceSet=true(지도 클릭) 이면 기존 값 덮어씀, 아니면 비어있을 때만 */
+          if (!addrEl.value || forceSet) addrEl.value = addr;
           else addrEl.placeholder = addr;
-          gpsData.addr = addr;
+          if(gpsData) gpsData.addr = addr;
           showToast('📮 GPS 주소 자동입력 완료!');
         } else {
           showToast('⚠️ 주소 변환 실패 — 좌표만 저장됩니다');
@@ -2559,8 +2638,20 @@ let _selectedSeqno = null;
 /* 제수밸브 심볼 이미지 (Base64 내장) */
 const VALVE_SYMBOL_IMG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABCGlDQ1BJQ0MgUHJvZmlsZQAAeJxjYGA8wQAELAYMDLl5JUVB7k4KEZFRCuwPGBiBEAwSk4sLGHADoKpv1yBqL+viUYcLcKakFicD6Q9ArFIEtBxopAiQLZIOYWuA2EkQtg2IXV5SUAJkB4DYRSFBzkB2CpCtkY7ETkJiJxcUgdT3ANk2uTmlyQh3M/Ck5oUGA2kOIJZhKGYIYnBncAL5H6IkfxEDg8VXBgbmCQixpJkMDNtbGRgkbiHEVBYwMPC3MDBsO48QQ4RJQWJRIliIBYiZ0tIYGD4tZ2DgjWRgEL7AwMAVDQsIHG5TALvNnSEfCNMZchhSgSKeDHkMyQx6QJYRgwGDIYMZAKbWPz9HbOBQAAAEbklEQVR4nO2WT2wbRRTGvze7jtOQpiqQpm5iu268tjFpod2iHhByQVzgUAGSUyFOqBJwgQNFHJtwgPJXQkggiqIiWnGJqciFAIckcpsWIWJARbRex2roOlL/QdWSpm3snXkcbFeOHDt2eiiHfpfV7mje93u7783MAndVQwzQnWYAA+J2YwwAoulkGKDvI6bndiEaMa4KXjbcPD8/NOOPPEuAmoLpatZ8AjGdAB7tDm05GYh+UBl7OWoNAGZ9xo8XfCHntD+8EwCagSjHSPoinvP+0OVzXuN45fNKLUXEACAFzZ3XxCtu5i+sgPHYdqQKE4jpjZgTICe9wd5uqKNXIIYdIXKVsZcDKA4wVrfqrvF/Se12Kxo55YtsexxJhxGvyqKs4Vvm4Q0eQccKivZfaNfeBrC2pk+tAUUsWSrPw2ezv80xvdQGHv89EAkREnIpCAZEPyCPdG1at16oSQht3wOz1sENNx0vM2TTAKWoeQbEZts6cp3ptXapJn4K9HUREnK44nsyIAhQo8Fgx0Nu7ShYfNw7kx4aBjSp9EI9i2WrkgCVCQbd0Vz6UF7hnXWycPyHnui9/YBkQAyUzD/q6Vll5GmSSPsqaFufZIJBdz9qZ94wAAAY2WxhCqYrOpv59AbzkCHk5HA02g6ABwE+YJptz4i2E4LESO/Z9P4pmC4jm62beVMAALAdqQLDdPXlMu/mGd9sveacSMTj4mWY+hOXrqV0YKz3rLVvCqZrO1INmQNAzbZyGO5r6sZqAEiUVjRCqsCI6ZRL7rN6wu1bfzl5uM+rVhG07/y29QYjphOSi8wdcN3VsB6A06m1VFX7IJKKAY1mrddnvKGrbUQd3XZaJwAJJKv6fIGkukm8pnRbNb4UAAFAqyauEvOiT8S33gTktDc8ViAMORqdmfaG/hzJt5q7L5ycHwDEW4Aqm7kdeV0nTQKAaBCg5MZUuZeUzIkAlfWFxgm41GtbewHglDfk39WycGzaNHcMplJO0ato1tmChbyDfC2bhoqwEyAgLghQZ3zhbwXEuV7b2j0B6AzTFc1l3mTg+N6Lc0ep2BlIlGIvMFO9XbEhgO5gUCMk5F++yNcOwJvs9AsMaDsBWS7MSM56VQCnLG94jAAVj8UaOgMssxIyMSBC2ezCtC9ysABeG7Kt50qbkqLSayYkJSOmG7nMHkH4J+MzRimZdBgQxPW7oC6AjuJKOOOPHHCBewzberqYeVLS4oJiICkZcc2wrX4daE37wsMEKFIuwXVasSYAg8QlXV6c9kfeB6ttG23rKQZoEGBaopqLzxKKAbHJnn6yBSpw2h9+7+8O9yytpAbmpcyvd1yfM3Pfxhef38GAGgSo1GJLqlyADPBUu+tRnTm25krhMwZdrjWnShOl1rQ3GqOzvtAfQFxjgAaaWLbLR69DXVvusX0h64zXyJUAKy41VDY6EXhwz4cez/2VAZtRec7PGx6571d/5PCXfn8rGgFYItCK/w8q5zadBK/kPF8D4s7/4dzV/1n/ARwFzPKsd0uFAAAAAElFTkSuQmCC';
 const _layers = {
-  pipe:  { data: null, overlays: [], visible: true },
-  valve: { data: null, overlays: [], visible: true },
+  pipe:       { data: null, overlays: [], visible: true },
+  valve:      { data: null, overlays: [], visible: true },
+  airvalve:   { data: null, overlays: [], visible: true },
+  hydrant:    { data: null, overlays: [], visible: true },
+  drainvalve: { data: null, overlays: [], visible: true },
+};
+
+/* 레이어 메타 정보 (UI/색상/심볼 등) */
+const LAYER_META = {
+  pipe:       { label:'배수관로',  nameId:'pipeFileName',       toggleId:'pipeToggleBtn',       uploadLabelId:'pipeUploadLabel',       inputId:'pipeInput'       },
+  valve:      { label:'제수밸브',  nameId:'valveFileName',      toggleId:'valveToggleBtn',      uploadLabelId:'valveUploadLabel',      inputId:'valveInput'      },
+  airvalve:   { label:'공기밸브',  nameId:'airvalveFileName',   toggleId:'airvalveToggleBtn',   uploadLabelId:'airvalveUploadLabel',   inputId:'airvalveInput'   },
+  hydrant:    { label:'소화전',    nameId:'hydrantFileName',    toggleId:'hydrantToggleBtn',    uploadLabelId:'hydrantUploadLabel',    inputId:'hydrantInput'    },
+  drainvalve: { label:'이토밸브',  nameId:'drainvalveFileName', toggleId:'drainvalveToggleBtn', uploadLabelId:'drainvalveUploadLabel', inputId:'drainvalveInput' },
 };
 
 /* ── 수동 완료 처리된 밸브 좌표 Set ("lat,lng" 문자열) ── */
@@ -2607,9 +2698,10 @@ async function _idbDel(key){
 /* 앱 시작 시 레이어 자동 로드: IDB 캐시 우선, 없으면 Firebase Storage에서 다운로드 */
 async function loadLayersFromIDB(){
   try {
-    for(const key of ['pipe','valve']){
-      const nameEl = document.getElementById(key==='pipe'?'pipeFileName':'valveFileName');
-      const btn    = document.getElementById(key+'ToggleBtn');
+    for(const key of ['pipe','valve','airvalve','hydrant','drainvalve']){
+      const meta  = LAYER_META[key];
+      const nameEl = document.getElementById(meta.nameId);
+      const btn    = document.getElementById(meta.toggleId);
 
       /* 1단계: IndexedDB 캐시 확인 */
       let stored = await _idbGet('layer_'+key);
@@ -2620,9 +2712,8 @@ async function loadLayersFromIDB(){
         const fbData = window.fbDownloadGeoJSON ? await window.fbDownloadGeoJSON(key) : null;
         if(fbData){
           stored = fbData;
-          /* IDB에도 캐시 저장 */
           _idbSet('layer_'+key, stored).catch(()=>{});
-          showToast(`☁️ ${key==='pipe'?'배수관로':'제수밸브'} 서버에서 자동 로드됨`);
+          showToast(`☁️ ${meta.label} 서버에서 자동 로드됨`);
         }
       }
 
@@ -2647,19 +2738,19 @@ async function loadLayersFromIDB(){
 async function syncLayersFromServer(){
   if(!window.fbDownloadGeoJSON){ showToast('⚠️ Firebase 연결 필요'); return; }
   let count = 0;
-  for(const key of ['pipe','valve']){
-    const label  = key==='pipe' ? '배수관로' : '제수밸브';
-    const nameEl = document.getElementById(key==='pipe'?'pipeFileName':'valveFileName');
-    const btn    = document.getElementById(key+'ToggleBtn');
+  for(const key of ['pipe','valve','airvalve','hydrant','drainvalve']){
+    const meta   = LAYER_META[key];
+    const nameEl = document.getElementById(meta.nameId);
+    const btn    = document.getElementById(meta.toggleId);
     if(nameEl) nameEl.textContent = '⬇️ 받는 중...';
-    showToast(`⬇️ ${label} 다운로드 중... (최대 수십초 소요)`);
+    showToast(`⬇️ ${meta.label} 다운로드 중...`);
     const data = await window.fbDownloadGeoJSON(key);
     if(data){
       _layers[key].data    = data;
       _layers[key].visible = true;
       if(nameEl) nameEl.textContent = data.features.length.toLocaleString()+'개 ☁️';
       if(btn){ btn.textContent='ON'; btn.style.background='#22a745'; }
-      showToast(`✅ ${label} ${data.features.length.toLocaleString()}개 수신 완료 — 기기에 저장 중...`);
+      showToast(`✅ ${meta.label} ${data.features.length.toLocaleString()}개 수신 완료`);
       _idbSet('layer_'+key, data).catch(()=>{});
       count++;
     } else {
@@ -2839,6 +2930,8 @@ function renderMapTab(){
 
   mapEmpty.style.display = 'none';
   gpsMap.style.display   = 'block';
+  const locBtn = document.getElementById('myLocationBtn');
+  if(locBtn) locBtn.style.display = 'flex';
 
   /* ── 카카오맵 초기화 ── */
   const center = new kakao.maps.LatLng(gr[0].gpsLat, gr[0].gpsLng);
@@ -2941,7 +3034,8 @@ function renderMapTab(){
 function loadLayerGeoJSON(layerKey, input){
   const file = input.files[0];
   if(!file) return;
-  const nameEl = document.getElementById(layerKey==='pipe' ? 'pipeFileName' : 'valveFileName');
+  const meta   = LAYER_META[layerKey];
+  const nameEl = document.getElementById(meta.nameId);
   nameEl.textContent = '⏳ 로딩 중...';
   const reader = new FileReader();
   reader.onload = async e => {
@@ -2950,15 +3044,15 @@ function loadLayerGeoJSON(layerKey, input){
       if(!data.type || !data.features){ showToast('⚠️ 유효한 GeoJSON 파일이 아닙니다'); nameEl.textContent='오류'; return; }
       _layers[layerKey].data = data;
       _layers[layerKey].visible = true;
-      const btn = document.getElementById(layerKey+'ToggleBtn');
+      const btn = document.getElementById(meta.toggleId);
       if(btn){ btn.textContent='ON'; btn.style.background='#22a745'; }
       nameEl.textContent = `${data.features.length.toLocaleString()}개`;
-      showToast(`✅ ${layerKey==='pipe'?'배수관로':'제수밸브'} 로드 완료 — ${data.features.length.toLocaleString()}개`);
+      showToast(`✅ ${meta.label} 로드 완료 — ${data.features.length.toLocaleString()}개`);
 
-      /* IndexedDB에 저장 → 이 기기 다음 접속 시 자동 복원 */
+      /* IndexedDB에 저장 */
       _idbSet('layer_'+layerKey, data).catch(()=>{});
 
-      /* 관리자면 Firebase Storage에도 업로드 → 다른 모든 기기 자동 수신 */
+      /* 관리자면 Firebase Storage에도 업로드 */
       if(isAdmin && window.fbUploadGeoJSON){
         nameEl.textContent = `${data.features.length.toLocaleString()}개 ⬆️ 서버 업로드 중...`;
         const ok = await window.fbUploadGeoJSON(layerKey, data);
@@ -2973,9 +3067,7 @@ function loadLayerGeoJSON(layerKey, input){
         showToast('💾 기기에 저장됨');
       }
 
-      /* 지도가 이미 초기화된 경우 바로 렌더링 */
       if(_kakaoMap) renderLayerOverlays(0);
-      /* 지도가 없으면 GPS 기록 없어도 지도 탭 강제 초기화 */
       else initMapForLayers();
     } catch(err){
       showToast('⚠️ JSON 파싱 오류: ' + err.message);
@@ -2993,6 +3085,8 @@ function initMapForLayers(){
   if(!gpsMap) return;
   mapEmpty.style.display = 'none';
   gpsMap.style.display = 'block';
+  const locBtn = document.getElementById('myLocationBtn');
+  if(locBtn) locBtn.style.display = 'flex';
   /* 평택시 중심 좌표로 초기화 */
   const center = new kakao.maps.LatLng(37.0, 127.0);
   if(!_kakaoMap){
@@ -3004,17 +3098,60 @@ function initMapForLayers(){
   renderLayerOverlays();
 }
 
+/* ── 지도 탭: 현재 내 위치로 이동 ── */
+let _myLocMarker = null;
+function goToMyLocation(){
+  if(!_kakaoMap){ showToast('⚠️ 지도가 초기화되지 않았습니다'); return; }
+  if(!navigator.geolocation){ showToast('⚠️ 이 기기는 GPS를 지원하지 않습니다'); return; }
+  const btn = document.getElementById('myLocationBtn');
+  if(btn){ btn.textContent='⏳'; btn.disabled = true; }
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      const lat = pos.coords.latitude;
+      const lng = pos.coords.longitude;
+      const latlng = new kakao.maps.LatLng(lat, lng);
+      _kakaoMap.setCenter(latlng);
+      _kakaoMap.setLevel(3);
+      /* 내 위치 마커 */
+      if(_myLocMarker) _myLocMarker.setMap(null);
+      const content = `<div style="
+        width:18px;height:18px;border-radius:50%;
+        background:#1565c0;border:3px solid #fff;
+        box-shadow:0 0 0 4px rgba(21,101,192,.35),0 2px 8px rgba(0,0,0,.3);
+        position:relative;
+      "><div style="
+        position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+        width:6px;height:6px;border-radius:50%;background:#fff;
+      "></div></div>`;
+      _myLocMarker = new kakao.maps.CustomOverlay({
+        position: latlng,
+        content,
+        yAnchor: 0.5,
+        zIndex: 200,
+      });
+      _myLocMarker.setMap(_kakaoMap);
+      showToast(`📍 현재 위치: ${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+      if(btn){ btn.textContent='📍'; btn.disabled = false; }
+    },
+    err => {
+      const msgs = {1:'위치 권한이 없습니다. 브라우저 설정에서 허용해주세요.',2:'위치 신호를 받을 수 없습니다.',3:'위치 요청 시간이 초과됐습니다.'};
+      showToast('⚠️ ' + (msgs[err.code] || '위치 오류'));
+      if(btn){ btn.textContent='📍'; btn.disabled = false; }
+    },
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+  );
+}
+
 /* 레이어 ON/OFF 토글 */
 function toggleLayer(layerKey){
   const layer = _layers[layerKey];
   if(!layer.data){ showToast('먼저 파일을 불러오세요'); return; }
   layer.visible = !layer.visible;
-  const btn = document.getElementById(layerKey+'ToggleBtn');
+  const btn = document.getElementById(LAYER_META[layerKey].toggleId);
   if(btn){
     btn.textContent = layer.visible ? 'ON' : 'OFF';
     btn.style.background = layer.visible ? '#22a745' : '#aaa';
   }
-  /* 숨김: 오버레이 제거 / 표시: 재렌더링 */
   if(!layer.visible){
     layer.overlays.forEach(o => o.setMap(null));
     layer.overlays = [];
@@ -3024,18 +3161,31 @@ function toggleLayer(layerKey){
 }
 
 /* 레이어 제거 */
-function clearLayer(layerKey){
+async function clearLayer(layerKey){
   const layer = _layers[layerKey];
+  const meta  = LAYER_META[layerKey];
   layer.overlays.forEach(o => o.setMap(null));
   layer.overlays = [];
   layer.data = null;
   layer.visible = true;
-  const btn = document.getElementById(layerKey+'ToggleBtn');
+  const btn = document.getElementById(meta.toggleId);
   if(btn){ btn.textContent='ON'; btn.style.background='#22a745'; }
-  const nameEl = document.getElementById(layerKey==='pipe' ? 'pipeFileName' : 'valveFileName');
+  const nameEl = document.getElementById(meta.nameId);
   if(nameEl) nameEl.textContent = '미로드';
   _idbDel('layer_'+layerKey).catch(()=>{});
-  showToast(`${layerKey==='pipe'?'배수관로':'제수밸브'} 레이어를 제거했습니다`);
+  /* 관리자면 Firebase Storage에서도 삭제 */
+  if(isAdmin && window._storage){
+    try {
+      const { ref: storRef, deleteObject } = await import('https://www.gstatic.com/firebasejs/10.14.1/firebase-storage.js');
+      const r = storRef(window._storage, `geojson/${layerKey}.geojson`);
+      await deleteObject(r);
+      showToast(`${meta.label} 레이어를 서버에서도 삭제했습니다`);
+    } catch(e) {
+      showToast(`${meta.label} 레이어를 기기에서 제거했습니다`);
+    }
+  } else {
+    showToast(`${meta.label} 레이어를 제거했습니다`);
+  }
 }
 
 /* ── 디바운스 타이머 ── */
@@ -3095,11 +3245,45 @@ function _doRenderLayers(){
   valve.overlays.forEach(o => o.setMap(null));
   valve.overlays = [];
   if(valve.data && valve.visible && zoomLevel <= 5){
+
+    /* ── 겹침 오프셋: 픽셀 거리 임계값 이내 포인트들을 방사형으로 분산 ── */
+    const proj = _kakaoMap.getProjection();
+    const OVERLAP_PX = 18;   /* 이 픽셀 이내면 겹침으로 판단 */
+
+    /* 뷰포트 내 피처만 먼저 수집 */
+    const visibleFeats = [];
     valve.data.features.forEach(feat => {
       const geom = feat.geometry;
       if(!geom || geom.type !== 'Point') return;
       const [lng, lat] = geom.coordinates;
       if(!inBounds(lat, lng)) return;
+      visibleFeats.push({ lat, lng });
+    });
+
+    /* 각 포인트에 오프셋(px) 계산 */
+    const offsets = visibleFeats.map(() => ({ dx: 0, dy: 0 }));
+
+    if(proj){
+      for(let i = 0; i < visibleFeats.length; i++){
+        const pi = proj.pointFromCoords(new kakao.maps.LatLng(visibleFeats[i].lat, visibleFeats[i].lng));
+        const cluster = [i];
+        for(let j = i+1; j < visibleFeats.length; j++){
+          const pj = proj.pointFromCoords(new kakao.maps.LatLng(visibleFeats[j].lat, visibleFeats[j].lng));
+          const dx = pj.x - pi.x, dy = pj.y - pi.y;
+          if(Math.sqrt(dx*dx + dy*dy) < OVERLAP_PX) cluster.push(j);
+        }
+        if(cluster.length > 1){
+          const step = (Math.PI * 2) / cluster.length;
+          const r = OVERLAP_PX * 0.65;
+          cluster.forEach((idx, k) => {
+            offsets[idx].dx = Math.round(Math.cos(step * k - Math.PI/2) * r);
+            offsets[idx].dy = Math.round(Math.sin(step * k - Math.PI/2) * r);
+          });
+        }
+      }
+    }
+
+    visibleFeats.forEach(({ lat, lng }, fi) => {
       const pos = new kakao.maps.LatLng(lat, lng);
       const valveKey = lat.toFixed(6)+','+lng.toFixed(6);
       const surveyedRec = records.find(r => r.valveKey === valveKey);
@@ -3108,21 +3292,21 @@ function _doRenderLayers(){
       const seqnoFromMap = window._valveSeqnoMap && window._valveSeqnoMap[valveKey];
       const displaySeqno = surveyedRec ? surveyedRec.seqno : (seqnoFromMap || null);
 
-      /* 완료: 초록 나비넥타이 + 연번 라벨 / 미조사: 빨간 나비넥타이 심볼 */
-      const symbolSize = zoomLevel <= 3 ? 20 : 14; /* 기존보다 2px 작게 */
+      /* 심볼 크기: 2px 줄임 */
+      const symbolSize = zoomLevel <= 3 ? 18 : 12;
       let dotContent;
 
-      /* 제수밸브 나비넥타이 SVG (업로드 이미지 기반) */
+      /* 오프셋 CSS transform */
+      const { dx, dy } = offsets[fi];
+      const offsetStyle = (dx || dy) ? `transform:translate(${dx}px,${dy}px);` : '';
+
+      /* 제수밸브 나비넥타이 SVG */
       const bowtieSVG = (color, strokeColor, sz) => `
         <svg width="${sz}" height="${sz}" viewBox="0 0 22 22" xmlns="http://www.w3.org/2000/svg"
           style="display:block;filter:drop-shadow(0 1px 3px rgba(0,0,0,.55))">
-          <!-- 외곽 사각형 테두리 -->
           <rect x="1.5" y="1.5" width="19" height="19" fill="none" stroke="${strokeColor}" stroke-width="1.8"/>
-          <!-- 왼쪽 삼각형 -->
           <polygon points="2,2 11,11 2,20" fill="${color}" stroke="${strokeColor}" stroke-width="1.2" stroke-linejoin="round"/>
-          <!-- 오른쪽 삼각형 -->
           <polygon points="20,2 11,11 20,20" fill="${color}" stroke="${strokeColor}" stroke-width="1.2" stroke-linejoin="round"/>
-          <!-- 중심 X 교차선 (선명하게) -->
           <line x1="2" y1="2" x2="20" y2="20" stroke="${strokeColor}" stroke-width="1.2"/>
           <line x1="20" y1="2" x2="2" y2="20" stroke="${strokeColor}" stroke-width="1.2"/>
         </svg>`;
@@ -3142,18 +3326,21 @@ function _doRenderLayers(){
             <div style="font-size:9px;color:#aaa;margin-top:1px">${lat.toFixed(4)}, ${lng.toFixed(4)}</div>
            </div>`;
 
-      /* hover 강조만 — PIP는 지도 마우스 이동으로 별도 제어 */
-      const hoverFns = `
-        onmouseenter="this.style.transform='scale(1.55)';this.style.filter='drop-shadow(0 0 5px rgba(255,60,60,.85))';this.style.zIndex='99';"
-        onmouseleave="this.style.transform='';this.style.filter='';this.style.zIndex='';"
-      `;
+      /* hover 강조 — 오프셋 적용 시 translate 포함 */
+      const hoverEnter = (dx||dy)
+        ? `this.style.transform='translate(${dx}px,${dy}px) scale(1.55)';this.style.filter='drop-shadow(0 0 5px rgba(255,60,60,.85))';this.style.zIndex='99';`
+        : `this.style.transform='scale(1.55)';this.style.filter='drop-shadow(0 0 5px rgba(255,60,60,.85))';this.style.zIndex='99';`;
+      const hoverLeave = (dx||dy)
+        ? `this.style.transform='translate(${dx}px,${dy}px)';this.style.filter='';this.style.zIndex='';`
+        : `this.style.transform='';this.style.filter='';this.style.zIndex='';`;
+      const hoverFns = `onmouseenter="${hoverEnter}" onmouseleave="${hoverLeave}"`;
 
       if(isCompleted && displaySeqno){
         dotContent = `<div onclick="handleValveClick(${lat},${lng},${isCompleted})"
           title="✅ 완료 (#${displaySeqno}) - 클릭하면 내역 조회"
           ${hoverFns}
           style="display:flex;flex-direction:column;align-items:center;cursor:pointer;
-            transition:transform .12s ease,filter .12s ease;position:relative;">
+            transition:transform .12s ease,filter .12s ease;position:relative;${offsetStyle}">
           ${bowtieSVG('#22a745', '#fff', symbolSize)}
           <div style="background:#22a745;color:#fff;font-family:'Noto Sans KR',sans-serif;font-weight:700;font-size:9px;
             padding:1px 5px;border-radius:3px;margin-top:1px;white-space:nowrap;
@@ -3163,14 +3350,14 @@ function _doRenderLayers(){
         dotContent = `<div onclick="handleValveClick(${lat},${lng},${isCompleted})"
           title="✅ 완료 - 클릭하면 내역 조회"
           ${hoverFns}
-          style="cursor:pointer;transition:transform .12s ease,filter .12s ease;position:relative;">
+          style="cursor:pointer;transition:transform .12s ease,filter .12s ease;position:relative;${offsetStyle}">
           ${bowtieSVG('#22a745', '#fff', symbolSize)}
         </div>`;
       } else {
         dotContent = `<div onclick="handleValveClick(${lat},${lng},${isCompleted})"
           title="📋 미조사 - 클릭하면 대장입력"
           ${hoverFns}
-          style="cursor:pointer;transition:transform .12s ease,filter .12s ease;position:relative;">
+          style="cursor:pointer;transition:transform .12s ease,filter .12s ease;position:relative;${offsetStyle}">
           ${bowtieSVG('#e53935', '#fff', symbolSize)}
         </div>`;
       }
@@ -3181,6 +3368,81 @@ function _doRenderLayers(){
       });
       dot.setMap(_kakaoMap);
       valve.overlays.push(dot);
+    });
+  }
+
+  /* ── 공기밸브: 줌 레벨 5 이하, 주황 원 심볼 ── */
+  const airvalve = _layers.airvalve;
+  airvalve.overlays.forEach(o => o.setMap(null));
+  airvalve.overlays = [];
+  if(airvalve.data && airvalve.visible && zoomLevel <= 5){
+    const sz = zoomLevel <= 3 ? 14 : 10;
+    airvalve.data.features.forEach(feat => {
+      const geom = feat.geometry;
+      if(!geom || geom.type !== 'Point') return;
+      const [lng, lat] = geom.coordinates;
+      if(!inBounds(lat, lng)) return;
+      const content = `<div title="공기밸브" style="
+        width:${sz}px;height:${sz}px;border-radius:50%;
+        background:#ff6f00;border:2px solid #e65100;
+        box-shadow:0 1px 4px rgba(0,0,0,.5);
+        cursor:default;
+        transition:transform .12s;
+      " onmouseenter="this.style.transform='scale(1.5)'" onmouseleave="this.style.transform=''"></div>`;
+      const o = new kakao.maps.CustomOverlay({ position: new kakao.maps.LatLng(lat, lng), content, zIndex: 1, yAnchor: 0.5 });
+      o.setMap(_kakaoMap);
+      airvalve.overlays.push(o);
+    });
+  }
+
+  /* ── 소화전: 줌 레벨 5 이하, 빨간 오각형 심볼 ── */
+  const hydrant = _layers.hydrant;
+  hydrant.overlays.forEach(o => o.setMap(null));
+  hydrant.overlays = [];
+  if(hydrant.data && hydrant.visible && zoomLevel <= 5){
+    const sz = zoomLevel <= 3 ? 14 : 10;
+    hydrant.data.features.forEach(feat => {
+      const geom = feat.geometry;
+      if(!geom || geom.type !== 'Point') return;
+      const [lng, lat] = geom.coordinates;
+      if(!inBounds(lat, lng)) return;
+      const content = `<div title="소화전" style="
+        width:${sz}px;height:${sz}px;
+        background:#d32f2f;
+        clip-path:polygon(50% 0%,100% 38%,82% 100%,18% 100%,0% 38%);
+        box-shadow:0 1px 4px rgba(0,0,0,.5);
+        cursor:default;
+        transition:transform .12s;
+      " onmouseenter="this.style.transform='scale(1.5)'" onmouseleave="this.style.transform=''"></div>`;
+      const o = new kakao.maps.CustomOverlay({ position: new kakao.maps.LatLng(lat, lng), content, zIndex: 1, yAnchor: 0.5 });
+      o.setMap(_kakaoMap);
+      hydrant.overlays.push(o);
+    });
+  }
+
+  /* ── 이토밸브: 줌 레벨 5 이하, 보라 삼각형 심볼 ── */
+  const drainvalve = _layers.drainvalve;
+  drainvalve.overlays.forEach(o => o.setMap(null));
+  drainvalve.overlays = [];
+  if(drainvalve.data && drainvalve.visible && zoomLevel <= 5){
+    const sz = zoomLevel <= 3 ? 14 : 10;
+    drainvalve.data.features.forEach(feat => {
+      const geom = feat.geometry;
+      if(!geom || geom.type !== 'Point') return;
+      const [lng, lat] = geom.coordinates;
+      if(!inBounds(lat, lng)) return;
+      const content = `<div title="이토밸브" style="
+        width:0;height:0;
+        border-left:${Math.round(sz/2)}px solid transparent;
+        border-right:${Math.round(sz/2)}px solid transparent;
+        border-bottom:${sz}px solid #6a1b9a;
+        filter:drop-shadow(0 1px 3px rgba(0,0,0,.5));
+        cursor:default;
+        transition:transform .12s;
+      " onmouseenter="this.style.transform='scale(1.5)'" onmouseleave="this.style.transform=''"></div>`;
+      const o = new kakao.maps.CustomOverlay({ position: new kakao.maps.LatLng(lat, lng), content, zIndex: 1, yAnchor: 0.5 });
+      o.setMap(_kakaoMap);
+      drainvalve.overlays.push(o);
     });
   }
 }
@@ -3216,8 +3478,10 @@ function toggleValveComplete(valveKey){
     if(val){ val.textContent = `${gpsData.lat}, ${gpsData.lng}`; val.className='gps-val on'; }
     if(dot){ dot.classList.add('on'); }
 
-    /* 역지오코딩으로 주소도 자동입력 */
-    reverseGeocode(gpsData.lat, gpsData.lng);
+    /* 역지오코딩으로 주소도 자동입력 (기존값 덮어씀) */
+    const addrEl2 = document.getElementById('f-addr');
+    if(addrEl2) addrEl2.value = '';
+    reverseGeocode(gpsData.lat, gpsData.lng, true);
 
     /* 선택한 밸브 키를 전역 보관 (저장 시 완료 표시에 사용) */
     _pendingValveKey = valveKey;
@@ -3450,7 +3714,10 @@ function confirmGoToForm() {
     const dot = document.getElementById('gpsDot');
     if(val){ val.textContent = `${gpsData.lat}, ${gpsData.lng}`; val.className='gps-val on'; }
     if(dot){ dot.classList.add('on'); }
-    reverseGeocode(gpsData.lat, gpsData.lng);
+    /* 주소 필드 초기화 후 역지오코딩 (forceSet=true: 기존 값 덮어씀) */
+    const addrEl = document.getElementById('f-addr');
+    if(addrEl) addrEl.value = '';
+    reverseGeocode(gpsData.lat, gpsData.lng, true);
     _pendingValveKey = valveKey;
     showToast('📍 GPS 자동입력 완료! 대장을 작성 후 저장하세요.');
   }
