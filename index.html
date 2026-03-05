@@ -1396,7 +1396,7 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
     <input class="login-input" type="text" id="workerNameInput"
       placeholder="이름 입력" maxlength="10"
       inputmode="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
-      oninput="if(!_imeComposing) onWorkerNameInput(this.value)"
+      oninput="onWorkerNameInput(this.value)"
       oncompositionstart="_imeComposing=true"
       oncompositionend="_imeComposing=false; onWorkerNameInput(this.value)"
       onkeydown="if(event.key==='Enter' && loginMode && !_imeComposing) startWorkerSession()">
