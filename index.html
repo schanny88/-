@@ -378,8 +378,7 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 }
 
 /* vroom 행: 헤더, 세로라벨 제외하고 비활성 처리 */
-.vroom-tr.disabled td,
-.vroom-row-manhole.disabled td:not(#vroom-remark-lb):not(#vroom-remark-inp){
+.vroom-tr.disabled td{
   opacity:.35;pointer-events:none;user-select:none
 }
 
@@ -892,17 +891,6 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
   </div>
 </div>
 
-<div class="gps-guide" id="gpsGuide">
-  <div style="font-size:18px;flex-shrink:0">📍</div>
-  <div id="gpsGuideMsg">위치 권한이 필요합니다.</div>
-</div>
-<div class="gallery-guide" id="galleryGuide">
-  <div style="font-size:18px;flex-shrink:0">🖼️</div>
-  <div id="galleryGuideMsg"></div>
-  <button class="gallery-guide-close" onclick="document.getElementById('galleryGuide').classList.remove('show')">✕</button>
-</div>
-<div class="storage-warn" id="storageWarn">⚠️ <span id="storageWarnMsg"></span></div>
-
 <!-- 대장 입력 -->
 <div class="page" id="page-form">
 <div class="dj-wrap">
@@ -966,6 +954,88 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
       <span class="gps-val" id="gpsVal">미수신</span>
       <button class="gps-btn" id="gpsBtn" onclick="getGPS()">📍 위치받기</button>
     </div>
+  </td>
+</tr>
+
+<tr id="guide-rows-tr" style="display:none"><td colspan="6" style="padding:0">
+  <div class="gps-guide" id="gpsGuide" style="margin:0;border-radius:0">
+    <div style="font-size:18px;flex-shrink:0">📍</div>
+    <div id="gpsGuideMsg">위치 권한이 필요합니다.</div>
+  </div>
+  <div class="gallery-guide" id="galleryGuide" style="margin:0;border-radius:0">
+    <div style="font-size:18px;flex-shrink:0">🖼️</div>
+    <div id="galleryGuideMsg"></div>
+    <button class="gallery-guide-close" onclick="document.getElementById('galleryGuide').classList.remove('show');_syncGuideRow()">✕</button>
+  </div>
+  <div class="storage-warn" id="storageWarn" style="margin:0;border-radius:0">⚠️ <span id="storageWarnMsg"></span></div>
+</td></tr>
+<!-- ▸ 밸브실 현황 섹션 헤더 — id로 투명도 예외 처리 -->
+<tr id="vroom-section-header"><td class="lb-sec" colspan="6">밸브실 현황</td></tr>
+
+<!-- ▸ 소형철개/맨홀철개 행 — 개폐불가여도 항상 활성 (class: vroom-row-smcover) -->
+<tr class="vroom-row-smcover">
+  <td class="lb-vert" rowspan="3" id="vroom-vert"><span>밸브실</span></td>
+  <td class="lb-vroom">소형<br>철개</td>
+  <td class="inp">
+    <div class="manhole-disabled-wrap">
+      <select id="f-smcover" onchange="chkD(this,'dw-smcover');onSmcoverChange()">
+        <option value="">-</option>
+        <option>185</option><option>265</option><option>318</option><option value="__d__">직접입력...</option>
+      </select>
+      <div class="dw" id="dw-smcover"><input type="text" placeholder="직접 입력" id="dt-smcover"></div>
+      <div class="manhole-disabled-badge" id="smcoverDisabledBadge">🚫 맨홀철개 선택 시 입력불가</div>
+    </div>
+  </td>
+  <td class="lb-vroom">맨홀<br>철개</td>
+  <td class="inp" colspan="2">
+    <div class="manhole-disabled-wrap">
+      <select id="f-manhole" onchange="onManholeChange()">
+        <option value="">-</option><option>648</option><option>648[동시기입]</option><option value="__d__">직접입력...</option>
+      </select>
+      <div class="dw" id="dw-manhole"><input type="text" placeholder="직접 입력" id="dt-manhole"></div>
+      <div class="manhole-disabled-badge" id="manholeDisabledBadge">🚫 소형철개 선택 시 입력불가</div>
+    </div>
+  </td>
+</tr>
+<tr class="vroom-row-manhole">
+  <td class="lb-vroom">보호통</td>
+  <td class="inp">
+    <div class="manhole-disabled-wrap">
+      <select id="f-protbox" onchange="chkD(this,'dw-protbox')">
+        <option value="">-</option><option>150</option><option>300</option><option value="__d__">직접입력...</option>
+      </select>
+      <div class="dw" id="dw-protbox"><input type="text" placeholder="직접 입력" id="dt-protbox"></div>
+      <div class="manhole-disabled-badge" id="protboxDisabledBadge">🚫 맨홀철개 선택 시 입력불가</div>
+    </div>
+  </td>
+  <td class="lb-vroom" id="vroom-remark-lb">상태</td>
+  <td class="inp" colspan="2" id="vroom-remark-inp" style="position:relative">
+    <div class="manhole-disabled-wrap">
+      <select id="f-vremark" onchange="chkD(this,'dw-vremark')">
+        <option value="">-</option>
+        <option>외부매몰</option><option>내부 수몰</option><option>내부 토몰</option>
+        <option>보호통 이탈</option><option>스핀들탈락</option><option>현장없음</option><option value="__d__">직접입력...</option>
+      </select>
+      <div class="dw" id="dw-vremark"><input type="text" placeholder="직접 입력" id="dt-vremark"></div>
+      <div class="manhole-disabled-badge" id="remarkDisabledBadge"></div>
+    </div>
+  </td>
+</tr>
+<tr class="vroom-tr">
+  <td class="lb-vroom">밸브실<br>크기</td>
+  <td class="inp" colspan="4" style="padding:0;position:relative">
+    <div class="vroom-row">
+      <input class="vroom-inp" type="number" inputmode="decimal" id="f-vroom1" placeholder="0.0" step="0.1" min="0" oninput="syncVroomMm()">
+      <span class="vroom-x">×</span>
+      <input class="vroom-inp" type="number" inputmode="decimal" id="f-vroom2" placeholder="0.0" step="0.1" min="0" oninput="syncVroomMm()">
+      <span class="vroom-x">×</span>
+      <input class="vroom-inp" type="number" inputmode="decimal" id="f-vroom3" placeholder="0.0" step="0.1" min="0" oninput="syncVroomMm()">
+      <span class="vroom-unit">m</span>
+    </div>
+    <div id="vroom-mm-preview" style="font-size:10px;color:var(--blue-dark);font-weight:700;text-align:center;padding:0 6px 4px;opacity:.7"></div>
+    <div style="display:none">
+    </div>
+    <div class="manhole-disabled-badge" id="vroomDisabledBadge">🚫 소형철개 선택 시 입력불가</div>
   </td>
 </tr>
 
@@ -1045,76 +1115,6 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
       <button class="oc-btn open" id="oc-open" onclick="selOC('OPEN')">🟢 OPEN</button>
       <button class="oc-btn close" id="oc-close" onclick="selOC('CLOSE')">🔴 CLOSE</button>
     </div>
-  </td>
-</tr>
-
-<!-- ▸ 밸브실 현황 섹션 헤더 — id로 투명도 예외 처리 -->
-<tr id="vroom-section-header"><td class="lb-sec" colspan="6">밸브실 현황</td></tr>
-
-<!-- ▸ 소형철개/맨홀철개 행 — 개폐불가여도 항상 활성 (class: vroom-row-smcover) -->
-<tr class="vroom-row-smcover">
-  <td class="lb-vert" rowspan="3" id="vroom-vert"><span>밸브실</span></td>
-  <td class="lb-vroom">소형<br>철개</td>
-  <td class="inp">
-    <div class="manhole-disabled-wrap">
-      <select id="f-smcover" onchange="chkD(this,'dw-smcover');onSmcoverChange()">
-        <option value="">-</option>
-        <option>185</option><option>265</option><option>318</option><option value="__d__">직접입력...</option>
-      </select>
-      <div class="dw" id="dw-smcover"><input type="text" placeholder="직접 입력" id="dt-smcover"></div>
-      <div class="manhole-disabled-badge" id="smcoverDisabledBadge">🚫 맨홀철개 선택 시 입력불가</div>
-    </div>
-  </td>
-  <td class="lb-vroom">맨홀<br>철개</td>
-  <td class="inp" colspan="2">
-    <div class="manhole-disabled-wrap">
-      <select id="f-manhole" onchange="onManholeChange()">
-        <option value="">-</option><option>648</option><option>648*별도</option><option value="__d__">직접입력...</option>
-      </select>
-      <div class="dw" id="dw-manhole"><input type="text" placeholder="직접 입력" id="dt-manhole"></div>
-      <div class="manhole-disabled-badge" id="manholeDisabledBadge">🚫 소형철개 선택 시 입력불가</div>
-    </div>
-  </td>
-</tr>
-<tr class="vroom-row-manhole">
-  <td class="lb-vroom">보호통</td>
-  <td class="inp">
-    <div class="manhole-disabled-wrap">
-      <select id="f-protbox" onchange="chkD(this,'dw-protbox')">
-        <option value="">-</option><option>150</option><option>300</option><option value="__d__">직접입력...</option>
-      </select>
-      <div class="dw" id="dw-protbox"><input type="text" placeholder="직접 입력" id="dt-protbox"></div>
-      <div class="manhole-disabled-badge" id="protboxDisabledBadge">🚫 맨홀철개 선택 시 입력불가</div>
-    </div>
-  </td>
-  <td class="lb-vroom" id="vroom-remark-lb">상태</td>
-  <td class="inp" colspan="2" id="vroom-remark-inp" style="position:relative">
-    <div class="manhole-disabled-wrap">
-      <select id="f-vremark" onchange="chkD(this,'dw-vremark')">
-        <option value="">-</option>
-        <option>외부매몰</option><option>내부 수몰</option><option>내부 토몰</option>
-        <option>보호통 이탈</option><option>스핀들탈락</option><option>현장없음</option><option value="__d__">직접입력...</option>
-      </select>
-      <div class="dw" id="dw-vremark"><input type="text" placeholder="직접 입력" id="dt-vremark"></div>
-      <div class="manhole-disabled-badge" id="remarkDisabledBadge">🚫 개폐가능 시 입력불가</div>
-    </div>
-  </td>
-</tr>
-<tr class="vroom-tr">
-  <td class="lb-vroom">밸브실<br>크기</td>
-  <td class="inp" colspan="4" style="padding:0;position:relative">
-    <div class="vroom-row">
-      <input class="vroom-inp" type="number" inputmode="decimal" id="f-vroom1" placeholder="0.0" step="0.1" min="0" oninput="syncVroomMm()">
-      <span class="vroom-x">×</span>
-      <input class="vroom-inp" type="number" inputmode="decimal" id="f-vroom2" placeholder="0.0" step="0.1" min="0" oninput="syncVroomMm()">
-      <span class="vroom-x">×</span>
-      <input class="vroom-inp" type="number" inputmode="decimal" id="f-vroom3" placeholder="0.0" step="0.1" min="0" oninput="syncVroomMm()">
-      <span class="vroom-unit">mm</span>
-    </div>
-    <div id="vroom-mm-preview" style="font-size:10px;color:var(--blue-dark);font-weight:700;text-align:center;padding:0 6px 4px;opacity:.7"></div>
-    <div style="display:none">
-    </div>
-    <div class="manhole-disabled-badge" id="vroomDisabledBadge">🚫 소형철개 선택 시 입력불가</div>
   </td>
 </tr>
 <tr><td class="lb-sec" colspan="6">기타사항</td></tr>
@@ -1314,7 +1314,7 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
           box-shadow:0 3px 12px rgba(0,0,0,.22);
           font-size:20px;
           cursor:pointer;
-          display:flex; align-items:center; justify-content:center;
+          align-items:center; justify-content:center;
           transition:box-shadow .15s, transform .15s;
         "
         onmousedown="this.style.transform='scale(.92)'"
@@ -2000,32 +2000,16 @@ function applyVremarkDisabled(disabled){
   const dw  = document.getElementById('dw-vremark');
   const dt  = document.getElementById('dt-vremark');
   if(!sel) return;
-  if(disabled){
-    sel.disabled = true;
-    sel.value = '';
-    if(dw) dw.classList.remove('on');
-    if(dt) dt.value = '';
-    /* 마커: 소형/맨홀 값 있을 때만 표시 — 오버레이 방식으로 맨홀철개·밸브실크기와 완전 동일 */
-    _syncRemarkBadge();
-  } else {
-    sel.disabled = false;
-    const rb = document.getElementById('remarkDisabledBadge');
-    if(rb) rb.classList.remove('on');
-  }
+  /* 상태칸은 개폐가능/불가 관계없이 항상 활성 */
+  sel.disabled = false;
+  const rb = document.getElementById('remarkDisabledBadge');
+  if(rb) rb.classList.remove('on');
 }
 
-/* 상태 마커 표시 여부 동기화 — 개폐가능(비활성) + 소형/맨홀 값 있을 때만 ON */
+/* 상태 마커 — 상태칸 항상 활성이므로 배지 항상 숨김 */
 function _syncRemarkBadge(){
   const rb = document.getElementById('remarkDisabledBadge');
-  if(!rb) return;
-  const sel = document.getElementById('f-vremark');
-  const isDisabled = sel && sel.disabled;
-  const smVal = document.getElementById('f-smcover')?.value || '';
-  const mhVal = document.getElementById('f-manhole')?.value || '';
-  const dtSm  = document.getElementById('dt-smcover')?.value.trim() || '';
-  const dtMh  = document.getElementById('dt-manhole')?.value.trim() || '';
-  const hasSmOrMh = smVal !== '' || mhVal !== '' || dtSm !== '' || dtMh !== '';
-  rb.classList.toggle('on', isDisabled && hasSmOrMh);
+  if(rb) rb.classList.remove('on');
 }
 
 function applyValveSectionDisabled(disabled){
@@ -2037,20 +2021,14 @@ function applyValveSectionDisabled(disabled){
   const valveVert = document.getElementById('valve-vert');
   if(valveVert) valveVert.classList.toggle('disabled', disabled);
 
-  /* ── 밸브실 크기 행만 비활성 ── */
+  /* ── 밸브실 크기 행 — 밸브상태와 무관하게 항상 활성 ── */
   document.querySelectorAll('.vroom-tr').forEach(tr=>{
-    tr.classList.toggle('disabled', disabled);
-    tr.querySelectorAll('input,select').forEach(el=>el.disabled=disabled);
+    tr.classList.remove('disabled');
+    tr.querySelectorAll('input,select').forEach(el=>el.disabled=false);
   });
 
   /* ── [수정] 소형/맨홀철개 행은 개폐불가여도 항상 활성 ── */
   _ensureSmcoverManholeEnabled();
-
-  /* 보호통 행(vroom-row-manhole) — 보호통 셀만 비활성, 비고는 별도 applyVremarkDisabled */
-  document.querySelectorAll('.vroom-row-manhole').forEach(tr=>{
-    tr.classList.toggle('disabled', disabled);
-    /* 비고 열은 건드리지 않음 — applyVremarkDisabled 에서 독립 처리 */
-  });
 
   /* 상호배타 다시 동기화 */
   syncSmcoverManhole();
@@ -2074,13 +2052,14 @@ function syncSmcoverManhole(){
   const hasSmcover = smVal !== '';
   const hasManhole = mhVal !== '';
   const is648      = mhVal === '648';
+  const is648Both  = mhVal === '648[동시기입]'; /* 동시기입: 소형철개 활성 유지 */
   const smNoVroom  = false; /* 밸브실크기는 항상 입력 가능 */
 
   /* ── 소형철개 있어도 맨홀철개 항상 활성 ── */
   mhSel.disabled=false; mhBadge.classList.remove('on');
 
-  /* ── 맨홀철개 있으면 → 소형철개 비활성 ── */
-  if(hasManhole){
+  /* ── 맨홀철개 있으면 → 소형철개 비활성 (단, 648[동시기입]은 예외) ── */
+  if(hasManhole && !is648Both){
     smSel.disabled=true; smSel.value=''; dwSm.classList.remove('on');
     document.getElementById('dt-smcover').value='';
     smBadge.classList.add('on');
@@ -2111,18 +2090,26 @@ function syncSmcoverManhole(){
   /* 비고 마커 동기화 */
   _syncRemarkBadge();
 }
-function onSmcoverChange(){ syncSmcoverManhole(); }
+function onSmcoverChange(){
+  syncSmcoverManhole();
+  /* 소형철개 185·265·318 선택 시 보호통 150 자동완성 (비어있을 때만) */
+  const smVal = document.getElementById('f-smcover').value;
+  const ptSel = document.getElementById('f-protbox');
+  if(['185','265','318'].includes(smVal) && ptSel && ptSel.value === ''){
+    ptSel.value = '150';
+  }
+}
 function onManholeChange(){ chkD(document.getElementById('f-manhole'),'dw-manhole'); syncSmcoverManhole(); }
 
 /* ── GPS ── */
 function getGPS(){
   const dot=document.getElementById('gpsDot'),val=document.getElementById('gpsVal'),btn=document.getElementById('gpsBtn'),guide=document.getElementById('gpsGuide');
   if(!navigator.geolocation){showGuide('이 브라우저는 GPS를 지원하지 않아요.');return;}
-  guide.classList.remove('show'); dot.classList.add('on'); val.textContent='수신 중...'; btn.textContent='⏳ 수신 중...'; btn.disabled=true;
+  guide.classList.remove('show'); dot.classList.add('on'); val.textContent='수신 중...'; btn.textContent='⏳ 수신 중...'; btn.disabled=true; _syncGuideRow();
   const doReq=()=>{ navigator.geolocation.getCurrentPosition(async pos=>{
     const lat=pos.coords.latitude.toFixed(6), lng=pos.coords.longitude.toFixed(6);
     gpsData={lat,lng}; val.textContent=`${lat}, ${lng}`; val.className='gps-val on';
-    btn.textContent='🔄 다시받기'; btn.disabled=false; guide.classList.remove('show');
+    btn.textContent='🔄 다시받기'; btn.disabled=false; guide.classList.remove('show'); _syncGuideRow();
     await reverseGeocode(lat,lng);
   },err=>{
     dot.classList.remove('on'); val.textContent='수신 실패'; btn.textContent='📍 위치받기'; btn.disabled=false;
@@ -2131,7 +2118,8 @@ function getGPS(){
   },{enableHighAccuracy:true,timeout:15000,maximumAge:0}); };
   if(navigator.permissions){ navigator.permissions.query({name:'geolocation'}).then(r=>{ if(r.state==='denied'){dot.classList.remove('on');val.textContent='권한 거부됨';btn.textContent='📍 위치받기';btn.disabled=false;showGuide('위치 권한이 거부되어 있어요. 설정에서 허용 후 새로고침해 주세요.');} else doReq(); }).catch(()=>doReq()); } else doReq();
 }
-function showGuide(msg){ const g=document.getElementById('gpsGuide'); document.getElementById('gpsGuideMsg').innerHTML=msg.replace(/\n/g,'<br>'); g.classList.add('show'); g.scrollIntoView({behavior:'smooth',block:'nearest'}); }
+function _syncGuideRow(){ const tr=document.getElementById('guide-rows-tr'); if(!tr) return; const hasVisible=[document.getElementById('gpsGuide'),document.getElementById('galleryGuide'),document.getElementById('storageWarn')].some(el=>el&&el.classList.contains('show')); tr.style.display=hasVisible?'':'none'; }
+function showGuide(msg){ const g=document.getElementById('gpsGuide'); document.getElementById('gpsGuideMsg').innerHTML=msg.replace(/\n/g,'<br>'); g.classList.add('show'); _syncGuideRow(); const tr=document.getElementById('guide-rows-tr'); if(tr) tr.scrollIntoView({behavior:'smooth',block:'nearest'}); }
 
 /* ── 카카오맵 역지오코딩 ── */
 async function reverseGeocode(lat, lng, forceSet) {
@@ -2167,7 +2155,7 @@ async function reverseGeocode(lat, lng, forceSet) {
 }
 
 /* ── 갤러리 ── */
-function showGalleryGuide(msg){ const g=document.getElementById('galleryGuide'); document.getElementById('galleryGuideMsg').innerHTML=msg; g.classList.add('show'); g.scrollIntoView({behavior:'smooth',block:'nearest'}); }
+function showGalleryGuide(msg){ const g=document.getElementById('galleryGuide'); document.getElementById('galleryGuideMsg').innerHTML=msg; g.classList.add('show'); _syncGuideRow(); }
 async function triggerGallery(e,inputId){
   e.preventDefault(); e.stopPropagation();
   document.getElementById('galleryGuide').classList.remove('show');
@@ -2246,6 +2234,7 @@ function delPhoto(e, i) {
 
 function checkStorageSize() {
   document.getElementById('storageWarn').classList.remove('show');
+  _syncGuideRow();
 }
 
 /* ── 저장 ── */
@@ -2375,6 +2364,7 @@ function resetForm(){
   photos=[null,null,null,null];
   [2,3].forEach(i=>{ document.getElementById('pi'+i).src=''; document.getElementById('pc'+i).classList.remove('hp'); document.getElementById('ps'+i).textContent=''; });
   ['storageWarn','gpsGuide','galleryGuide'].forEach(id=>document.getElementById(id).classList.remove('show'));
+  _syncGuideRow();
   gpsData=null;
   document.getElementById('gpsDot').classList.remove('on');
   document.getElementById('gpsVal').textContent='미수신';
