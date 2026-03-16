@@ -1004,6 +1004,76 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
   <td colspan="6"></td>
 </tr>
 
+<!-- ▸ 밸브실 현황 섹션 헤더 — id로 투명도 예외 처리 -->
+<tr id="vroom-section-header"><td class="lb-sec" colspan="6">밸브실 현황</td></tr>
+
+<!-- ▸ 소형철개/맨홀철개 행 — 개폐불가여도 항상 활성 (class: vroom-row-smcover) -->
+<tr class="vroom-row-smcover">
+  <td class="lb-vert" rowspan="3" id="vroom-vert"><span>밸브실</span></td>
+  <td class="lb-vroom">소형<br>철개</td>
+  <td class="inp">
+    <div class="manhole-disabled-wrap">
+      <select id="f-smcover" onchange="chkD(this,&#39;dw-smcover&#39;);onSmcoverChange()">
+        <option value="">-</option>
+        <option>185</option><option>265</option><option>318</option><option value="__d__">직접입력...</option>
+      </select>
+      <div class="dw" id="dw-smcover"><input type="text" placeholder="직접 입력" id="dt-smcover"></div>
+      <div class="manhole-disabled-badge" id="smcoverDisabledBadge">🚫 맨홀철개 선택 시 입력불가</div>
+    </div>
+  </td>
+  <td class="lb-vroom">맨홀<br>철개</td>
+  <td class="inp" colspan="2">
+    <div class="manhole-disabled-wrap">
+      <select id="f-manhole" onchange="onManholeChange()">
+        <option value="">-</option><option>648</option><option>648*별도</option><option value="__d__">직접입력...</option>
+      </select>
+      <div class="dw" id="dw-manhole"><input type="text" placeholder="직접 입력" id="dt-manhole"></div>
+      <div class="manhole-disabled-badge" id="manholeDisabledBadge">🚫 소형철개 선택 시 입력불가</div>
+    </div>
+  </td>
+</tr>
+<tr class="vroom-row-manhole">
+  <td class="lb-vroom">보호통</td>
+  <td class="inp">
+    <div class="manhole-disabled-wrap">
+      <select id="f-protbox" onchange="chkD(this,&#39;dw-protbox&#39;)">
+        <option value="">-</option><option>150</option><option>300</option><option value="__d__">직접입력...</option>
+      </select>
+      <div class="dw" id="dw-protbox"><input type="text" placeholder="직접 입력" id="dt-protbox"></div>
+      <div class="manhole-disabled-badge" id="protboxDisabledBadge">🚫 맨홀철개 선택 시 입력불가</div>
+    </div>
+  </td>
+  <td class="lb-vroom" id="vroom-remark-lb">상태</td>
+  <td class="inp" colspan="2" id="vroom-remark-inp" style="position:relative">
+    <div class="manhole-disabled-wrap">
+      <select id="f-vremark" onchange="chkD(this,&#39;dw-vremark&#39;)" disabled="">
+        <option value="">-</option>
+        <option>외부매몰</option><option>내부 수몰</option><option>내부 토몰</option>
+        <option>보호통 이탈</option><option>스핀들탈락</option><option>현장없음</option><option value="__d__">직접입력...</option>
+      </select>
+      <div class="dw" id="dw-vremark"><input type="text" placeholder="직접 입력" id="dt-vremark"></div>
+      <div class="manhole-disabled-badge" id="remarkDisabledBadge">🚫 개폐가능 시 입력불가</div>
+    </div>
+  </td>
+</tr>
+<tr class="vroom-tr">
+  <td class="lb-vroom">밸브실<br>크기</td>
+  <td class="inp" colspan="4" style="padding:0;position:relative">
+    <div class="vroom-row">
+      <input class="vroom-inp" type="number" inputmode="decimal" id="f-vroom1" placeholder="0.0" step="0.1" min="0" oninput="syncVroomMm()" disabled="" style="background: var(--cell); cursor: default;">
+      <span class="vroom-x">×</span>
+      <input class="vroom-inp" type="number" inputmode="decimal" id="f-vroom2" placeholder="0.0" step="0.1" min="0" oninput="syncVroomMm()" disabled="" style="background: var(--cell); cursor: default;">
+      <span class="vroom-x">×</span>
+      <input class="vroom-inp" type="number" inputmode="decimal" id="f-vroom3" placeholder="0.0" step="0.1" min="0" oninput="syncVroomMm()" disabled="" style="background: var(--cell); cursor: default;">
+      <span class="vroom-unit">mm</span>
+    </div>
+    <div id="vroom-mm-preview" style="font-size:10px;color:var(--blue-dark);font-weight:700;text-align:center;padding:0 6px 4px;opacity:.7"></div>
+    <div style="display:none">
+    </div>
+    <div class="manhole-disabled-badge" id="vroomDisabledBadge">🚫 소형철개 선택 시 입력불가</div>
+  </td>
+</tr>
+
 <!-- ▸ 밸브 현황 섹션 헤더 — id로 투명도 예외 처리 -->
 <tr id="valve-section-header"><td class="lb-sec" colspan="6">밸브 현황</td></tr>
 <tr class="valve-row">
@@ -1080,76 +1150,6 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
       <button class="oc-btn open" id="oc-open" onclick="selOC(&#39;OPEN&#39;)" disabled="" style="opacity: 0.4; cursor: default;">🟢 OPEN</button>
       <button class="oc-btn close" id="oc-close" onclick="selOC(&#39;CLOSE&#39;)" disabled="" style="opacity: 0.4; cursor: default;">🔴 CLOSE</button>
     </div>
-  </td>
-</tr>
-
-<!-- ▸ 밸브실 현황 섹션 헤더 — id로 투명도 예외 처리 -->
-<tr id="vroom-section-header"><td class="lb-sec" colspan="6">밸브실 현황</td></tr>
-
-<!-- ▸ 소형철개/맨홀철개 행 — 개폐불가여도 항상 활성 (class: vroom-row-smcover) -->
-<tr class="vroom-row-smcover">
-  <td class="lb-vert" rowspan="3" id="vroom-vert"><span>밸브실</span></td>
-  <td class="lb-vroom">소형<br>철개</td>
-  <td class="inp">
-    <div class="manhole-disabled-wrap">
-      <select id="f-smcover" onchange="chkD(this,&#39;dw-smcover&#39;);onSmcoverChange()">
-        <option value="">-</option>
-        <option>185</option><option>265</option><option>318</option><option value="__d__">직접입력...</option>
-      </select>
-      <div class="dw" id="dw-smcover"><input type="text" placeholder="직접 입력" id="dt-smcover"></div>
-      <div class="manhole-disabled-badge" id="smcoverDisabledBadge">🚫 맨홀철개 선택 시 입력불가</div>
-    </div>
-  </td>
-  <td class="lb-vroom">맨홀<br>철개</td>
-  <td class="inp" colspan="2">
-    <div class="manhole-disabled-wrap">
-      <select id="f-manhole" onchange="onManholeChange()">
-        <option value="">-</option><option>648</option><option>648*별도</option><option value="__d__">직접입력...</option>
-      </select>
-      <div class="dw" id="dw-manhole"><input type="text" placeholder="직접 입력" id="dt-manhole"></div>
-      <div class="manhole-disabled-badge" id="manholeDisabledBadge">🚫 소형철개 선택 시 입력불가</div>
-    </div>
-  </td>
-</tr>
-<tr class="vroom-row-manhole">
-  <td class="lb-vroom">보호통</td>
-  <td class="inp">
-    <div class="manhole-disabled-wrap">
-      <select id="f-protbox" onchange="chkD(this,&#39;dw-protbox&#39;)">
-        <option value="">-</option><option>150</option><option>300</option><option value="__d__">직접입력...</option>
-      </select>
-      <div class="dw" id="dw-protbox"><input type="text" placeholder="직접 입력" id="dt-protbox"></div>
-      <div class="manhole-disabled-badge" id="protboxDisabledBadge">🚫 맨홀철개 선택 시 입력불가</div>
-    </div>
-  </td>
-  <td class="lb-vroom" id="vroom-remark-lb">상태</td>
-  <td class="inp" colspan="2" id="vroom-remark-inp" style="position:relative">
-    <div class="manhole-disabled-wrap">
-      <select id="f-vremark" onchange="chkD(this,&#39;dw-vremark&#39;)" disabled="">
-        <option value="">-</option>
-        <option>외부매몰</option><option>내부 수몰</option><option>내부 토몰</option>
-        <option>보호통 이탈</option><option>스핀들탈락</option><option>현장없음</option><option value="__d__">직접입력...</option>
-      </select>
-      <div class="dw" id="dw-vremark"><input type="text" placeholder="직접 입력" id="dt-vremark"></div>
-      <div class="manhole-disabled-badge" id="remarkDisabledBadge">🚫 개폐가능 시 입력불가</div>
-    </div>
-  </td>
-</tr>
-<tr class="vroom-tr">
-  <td class="lb-vroom">밸브실<br>크기</td>
-  <td class="inp" colspan="4" style="padding:0;position:relative">
-    <div class="vroom-row">
-      <input class="vroom-inp" type="number" inputmode="decimal" id="f-vroom1" placeholder="0.0" step="0.1" min="0" oninput="syncVroomMm()" disabled="" style="background: var(--cell); cursor: default;">
-      <span class="vroom-x">×</span>
-      <input class="vroom-inp" type="number" inputmode="decimal" id="f-vroom2" placeholder="0.0" step="0.1" min="0" oninput="syncVroomMm()" disabled="" style="background: var(--cell); cursor: default;">
-      <span class="vroom-x">×</span>
-      <input class="vroom-inp" type="number" inputmode="decimal" id="f-vroom3" placeholder="0.0" step="0.1" min="0" oninput="syncVroomMm()" disabled="" style="background: var(--cell); cursor: default;">
-      <span class="vroom-unit">mm</span>
-    </div>
-    <div id="vroom-mm-preview" style="font-size:10px;color:var(--blue-dark);font-weight:700;text-align:center;padding:0 6px 4px;opacity:.7"></div>
-    <div style="display:none">
-    </div>
-    <div class="manhole-disabled-badge" id="vroomDisabledBadge">🚫 소형철개 선택 시 입력불가</div>
   </td>
 </tr>
 <tr><td class="lb-sec" colspan="6">기타사항</td></tr>
@@ -7996,8 +7996,8 @@ function triggerPhoto(e,inputId){ e.preventDefault(); e.stopPropagation(); const
 function formatBytes(b){ if(b<1024) return b+'B'; if(b<1024*1024) return (b/1024).toFixed(0)+'KB'; return (b/1024/1024).toFixed(1)+'MB'; }
 
 const PHOTO_MAX_BYTES  = 25 * 1024 * 1024;
-const PHOTO_MAX_WIDTH  = 1920;
-const PHOTO_QUALITY    = 0.85;
+const PHOTO_MAX_WIDTH  = 1280;   // 1920 → 1280 (현장사진 충분)
+const PHOTO_QUALITY    = 0.72;   // 0.85 → 0.72 (육안 차이 거의 없음)
 
 function compressImage(dataUrl) {
   return new Promise(resolve => {
