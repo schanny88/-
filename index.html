@@ -81,25 +81,32 @@ if (db) {
 window._deletingIds = new Set();
 
 window.fbUploadPhotos = async function(rec) {
-  if (!storage) return;
+  if (!storage) return {};
   const photoMap = { 0: '1', 1: '2', 2: '3', 3: '4' };
+
+  /* ── 병렬 업로드: 사진 여러 장을 동시에 올림 ── */
+  const tasks = Object.entries(photoMap)
+    .filter(([idx]) => {
+      const dataUrl = rec.photos[parseInt(idx)];
+      return dataUrl && !dataUrl.startsWith('http');
+    })
+    .map(async ([idx, suffix]) => {
+      const dataUrl = rec.photos[parseInt(idx)];
+      try {
+        const fileName = `${rec.seqno}-${suffix}`;
+        const storageRef = ref(storage, `photos/${fileName}`);
+        await uploadString(storageRef, dataUrl, 'data_url');
+        const downloadUrl = await getDownloadURL(storageRef);
+        return [parseInt(idx), downloadUrl];
+      } catch(e) {
+        console.warn(`Storage 업로드 오류 (index ${idx}):`, e);
+        return null;
+      }
+    });
+
+  const results = await Promise.all(tasks);
   const urlUpdates = {};
-
-  for (const [idx, suffix] of Object.entries(photoMap)) {
-    const dataUrl = rec.photos[parseInt(idx)];
-    if (!dataUrl || dataUrl.startsWith('http')) continue;
-
-    try {
-      const fileName = `${rec.seqno}-${suffix}`;
-      const storageRef = ref(storage, `photos/${fileName}`);
-      await uploadString(storageRef, dataUrl, 'data_url');
-      const downloadUrl = await getDownloadURL(storageRef);
-      urlUpdates[parseInt(idx)] = downloadUrl;
-      console.log(`📸 Storage 업로드 완료: ${fileName}`);
-    } catch(e) {
-      console.warn(`Storage 업로드 오류 (index ${idx}):`, e);
-    }
-  }
+  results.forEach(r => { if (r) urlUpdates[r[0]] = r[1]; });
 
   if (Object.keys(urlUpdates).length > 0) {
     const recIdx = window._records
@@ -113,23 +120,35 @@ window.fbUploadPhotos = async function(rec) {
       window._records[recIdx].photos = newPhotos;
       try { localStorage.setItem('valve-v7', JSON.stringify(window._records)); } catch(e) {}
     }
-    return urlUpdates;
   }
-  return {};
+  return urlUpdates;
 };
+
 
 window.fbSaveRecord = async function(rec) {
   if (!db) return;
   try {
     setFbStatus('🔄', '#90caf9');
+
+    /* ── 사진 업로드 + Firestore 저장을 동시에 시작 ── */
+    /* 1단계: 사진 없는 버전으로 Firestore 즉시 저장 (체감 속도↑) */
+    const noPhotoData = { ...rec, photos: (rec.photos||[null,null,null,null]).map(p => p && p.startsWith('http') ? p : null) };
+    const firestorePromise = setDoc(doc(db, 'valve-records', String(rec.id)), noPhotoData);
+
+    /* 2단계: 사진 병렬 업로드 */
     const urlUpdates = await window.fbUploadPhotos(rec);
-    const cleanPhotos = (rec.photos || [null,null,null,null]).map((p, i) => {
-      if (urlUpdates[i]) return urlUpdates[i];
-      if (p && p.startsWith('http')) return p;
-      return null;
-    });
-    const data = { ...rec, photos: cleanPhotos };
-    await setDoc(doc(db, 'valve-records', String(rec.id)), data);
+
+    /* 3단계: 사진 URL 확정 후 Firestore 업데이트 (변경 있을 때만) */
+    await firestorePromise;
+    if (Object.keys(urlUpdates).length > 0) {
+      const cleanPhotos = (rec.photos || [null,null,null,null]).map((p, i) => {
+        if (urlUpdates[i]) return urlUpdates[i];
+        if (p && p.startsWith('http')) return p;
+        return null;
+      });
+      await setDoc(doc(db, 'valve-records', String(rec.id)), { ...rec, photos: cleanPhotos });
+    }
+
     setFbStatus('☁️', '#a5d6a7');
     console.log('✅ Firestore 저장 완료:', rec.seqno);
   } catch(e) {
@@ -7882,24 +7901,12 @@ function syncSmcoverManhole(){
   /* ── 소형철개 있어도 맨홀철개 항상 활성 ── */
   mhSel.disabled=false; mhBadge.classList.remove('on');
 
-  /* ── 맨홀철개 있으면 → 소형철개 비활성 ── */
-  if(hasManhole){
-    smSel.disabled=true; smSel.value=''; dwSm.classList.remove('on');
-    document.getElementById('dt-smcover').value='';
-    smBadge.classList.add('on');
-  } else {
-    smSel.disabled=false; smBadge.classList.remove('on');
-  }
+  /* ── 맨홀철개 선택 여부와 무관하게 소형철개 항상 활성 ── */
+  smSel.disabled=false; smBadge.classList.remove('on');
 
-  /* ── 648 선택 시 → 보호통 비활성 ── */
-  if(is648){
-    ptSel.disabled=true; ptSel.value=''; dwPt.classList.remove('on');
-    document.getElementById('dt-protbox').value='';
-    if(ptBadge) ptBadge.classList.add('on');
-  } else {
-    ptSel.disabled=false;
-    if(ptBadge) ptBadge.classList.remove('on');
-  }
+  /* ── 보호통 항상 활성 ── */
+  ptSel.disabled=false;
+  if(ptBadge) ptBadge.classList.remove('on');
 
   /* ── 소형철개 선택 시 → 밸브실크기 비활성 ── */
   ['f-vroom1','f-vroom2','f-vroom3'].forEach(id=>{
