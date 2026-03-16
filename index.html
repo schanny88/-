@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>밸브류 관리대장 v0.1</title>
 <link href="./index_files/css2" rel="stylesheet">
-<script src="./index_files/xlsx.full.min.js.다운로드"></script>
-<script src="./index_files/jszip.min.js.다운로드"></script>
-<script src="./index_files/exceljs.min.js.다운로드"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=3ddc7a06a7a28f64a2db46512879c789&libraries=services"></script>
 
 <script type="module">
@@ -8107,25 +8107,142 @@ async function reverseGeocode(lat, lng, forceSet) {
       showToast('⚠️ 카카오맵 로드 실패 — 좌표만 저장됩니다');
       return;
     }
+
+    const VWORLD_KEY = '53D67195-1F29-32E8-B78A-3BE69020AF6E';
+
     const geocoder = new kakao.maps.services.Geocoder();
-    geocoder.coord2Address(lng, lat, function(result, status) {
-      if (status === kakao.maps.services.Status.OK && result.length > 0) {
-        const road   = result[0].road_address;
-        const parcel = result[0].address;
-        const addr   = (road ? road.address_name : '') || (parcel ? parcel.address_name : '');
-        if (addr) {
-          const addrEl = document.getElementById('f-addr');
-          /* forceSet=true(지도 클릭) 이면 기존 값 덮어씀, 아니면 비어있을 때만 */
-          addrEl.value = addr;
-          if(gpsData) gpsData.addr = addr;
-          showToast('📮 GPS 주소 자동입력 완료!');
+    const places   = new kakao.maps.services.Places();
+
+    /* 좌표 → 도로명/지번 주소 획득 */
+    const getAddrAt = (alat, alng) => new Promise(resolve => {
+      geocoder.coord2Address(alng, alat, (result, status) => {
+        if (status === kakao.maps.services.Status.OK && result.length > 0) {
+          const road   = result[0].road_address;
+          const parcel = result[0].address;
+          resolve({
+            addr    : (road ? road.address_name : '') || (parcel ? parcel.address_name : ''),
+            road    : road   ? road.address_name   : '',
+            parcel  : parcel ? parcel.address_name : '',
+            mountain: parcel ? parcel.mountain_yn  : 'N'
+          });
         } else {
-          showToast('⚠️ 주소 변환 실패 — 좌표만 저장됩니다');
+          resolve({ addr: '', road: '', parcel: '', mountain: 'N' });
         }
-      } else {
-        showToast('⚠️ 주소 변환 실패 — 좌표만 저장됩니다');
-      }
+      });
     });
+
+    /* 반경 r미터 내 가장 가까운 건물 검색 */
+    const searchNearby = (radius) => new Promise(resolve => {
+      places.keywordSearch(' ', (result, status) => {
+        if (status === kakao.maps.services.Status.OK && result.length > 0) {
+          const sorted = result
+            .filter(p => p.road_address_name || p.address_name)
+            .sort((a, b) => parseFloat(a.distance) - parseFloat(b.distance));
+          resolve(sorted[0] || null);
+        } else {
+          resolve(null);
+        }
+      }, {
+        location: new kakao.maps.LatLng(lat, lng),
+        radius,
+        sort: kakao.maps.services.SortBy.DISTANCE
+      });
+    });
+
+    /* 브이월드 연속지적도 API — 필지 면적 + 지목 조회 */
+    const getParcelInfo = async (alat, alng) => {
+      try {
+        const bbox = `${alng - 0.0002},${alat - 0.0002},${alng + 0.0002},${alat + 0.0002}`;
+        const url  = `https://api.vworld.kr/req/data?service=data&request=GetFeature`
+                   + `&data=LP_PA_CBND_BUBUN&key=${VWORLD_KEY}`
+                   + `&geometry=false&attribute=true`
+                   + `&bbox=${bbox}`
+                   + `&geomFilter=POINT(${alng} ${alat})`
+                   + `&size=1&page=1&format=json`;
+        const res  = await fetch(url);
+        const json = await res.json();
+        const feat = json?.response?.result?.featureCollection?.features?.[0];
+        if (!feat) return null;
+        const prop = feat.properties;
+        return {
+          area  : parseFloat(prop.AREA   || prop.area   || 0),  /* 면적 ㎡ */
+          jimok : prop.JMCD_NM || prop.jmcd_nm || ''           /* 지목명 */
+        };
+      } catch(e) {
+        console.warn('브이월드 필지 조회 실패', e);
+        return null;
+      }
+    };
+
+    /* 넓은 필지 판단 기준
+       면적 500㎡ 이상 또는 지목이 전/답/임야/산/공원/하천/구거 */
+    const LARGE_AREA  = 500;
+    const LARGE_JIMOK = /전|답|임야|산|공원|하천|구거|잡종지|목장/;
+
+    const isLargeParcel = (info) => {
+      if (!info) return false;
+      if (info.area >= LARGE_AREA)         return true;
+      if (LARGE_JIMOK.test(info.jimok))    return true;
+      return false;
+    };
+
+    /* ── 단계별 실행 ── */
+    const base = await getAddrAt(lat, lng);
+
+    /* ① 반경 5m 건물 검색 */
+    const building = await searchNearby(5);
+
+    let finalAddr = '';
+    let needCheck = false;
+
+    if (building) {
+      /* 건물 주소 + 건물명 */
+      const bAddr = building.road_address_name || building.address_name || '';
+      const bName = building.place_name || '';
+      finalAddr = bAddr ? (bName ? `${bAddr} (${bName} 인근)` : bAddr) : base.addr;
+
+    } else if (base.road) {
+      /* ② 도로명주소 있음 → 그대로 사용 */
+      finalAddr = base.road;
+
+    } else {
+      /* ③ 지번만 → 브이월드로 면적/지목 확인 */
+      finalAddr = base.parcel || base.addr;
+      if (base.mountain === 'Y') {
+        /* 산번지 → 무조건 넓은 필지 */
+        needCheck = true;
+      } else {
+        const parcelInfo = await getParcelInfo(lat, lng);
+        needCheck = isLargeParcel(parcelInfo);
+        /* 디버그용 콘솔 */
+        if (parcelInfo) console.log(`📐 필지정보 — 면적:${parcelInfo.area}㎡ 지목:${parcelInfo.jimok}`);
+      }
+      if (needCheck) {
+        finalAddr = `${finalAddr} [위치확인필요]`;
+      }
+    }
+
+    if (!finalAddr) {
+      showToast('⚠️ 주소 변환 실패 — 좌표만 저장됩니다');
+      return;
+    }
+
+    const addrEl = document.getElementById('f-addr');
+    addrEl.value = finalAddr;
+    if (gpsData) gpsData.addr = finalAddr;
+
+    if (needCheck) {
+      addrEl.style.background  = '#fffde7';
+      addrEl.style.borderColor = '#f9a825';
+      setTimeout(() => {
+        addrEl.style.background  = '';
+        addrEl.style.borderColor = '';
+      }, 5000);
+      showToast('⚠️ 넓은 부지 감지 — 엑셀 검토 후 수정해주세요');
+    } else {
+      showToast('📮 GPS 주소 자동입력 완료!');
+    }
+
   } catch(e) {
     console.warn('Kakao geocode fail', e);
     showToast('⚠️ 주소 변환 실패 — 좌표만 저장됩니다');
