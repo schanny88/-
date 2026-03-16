@@ -966,7 +966,25 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 </colgroup>
 <tbody><tr>
   <td class="lb" colspan="2">조사일자</td>
-  <td class="inp" colspan="4"><input type="date" id="f-date"></td>
+  <td class="inp" colspan="3" style="width:auto"><input type="date" id="f-date"></td>
+  <td style="padding:2px 4px;vertical-align:middle;position:relative;width:1px;white-space:nowrap;text-align:right">
+    <button onclick="toggleRecentPanel()" id="recentBtn" class="gps-btn"
+      style="padding:5px 8px;font-size:13px;line-height:1">
+      📋
+    </button>
+    <div id="recentPanel" style="display:none;position:fixed;left:50%;transform:translateX(-50%);width:80vw;max-width:340px;max-height:44vh;overflow-y:auto;background:#fff;border:1.5px solid var(--blue);border-radius:10px;box-shadow:0 6px 24px rgba(13,49,112,.2);z-index:9999;padding:6px 0">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:5px 10px 5px;border-bottom:1px solid #e0e8f4">
+        <span style="font-size:10px;font-weight:900;color:var(--blue-dark)">📋 이전자료 불러오기</span>
+        <button onclick="toggleRecentPanel()" style="background:none;border:none;font-size:13px;cursor:pointer;color:var(--muted);line-height:1">✕</button>
+      </div>
+      <div style="padding:4px 8px 3px">
+        <input id="recentSearch" type="text" placeholder="관리번호 · 주소 · 밸브종류..."
+          oninput="renderRecentList(this.value)"
+          style="width:100%;box-sizing:border-box;border:1px solid #c5d8f0;border-radius:6px;padding:5px 8px;font-family:'Noto Sans KR',sans-serif;font-size:11px;outline:none">
+      </div>
+      <div id="recentList" style="padding:0 4px 4px"></div>
+    </div>
+  </td>
 </tr>
 <tr>
   <td class="lb-vert" rowspan="5"><span>기본현황</span></td>
@@ -7537,7 +7555,7 @@ function init(){
   loadRecords(); updateBadge(); updateSeqPreview(); updateVformOptions('');
   initMobileNotice();
   applyVtypeBlank(true);
-  applyVremarkDisabled(true);
+  applyVremarkDisabled(false);
   document.getElementById('mOv').addEventListener('click',e=>{ if(e.target===document.getElementById('mOv')) closeModal(); });
   document.getElementById('mCloseBtn').addEventListener('click', closeModal);
   /* 작업자 복원 */
@@ -7562,8 +7580,10 @@ function init(){
 }
 
 function getNextSeqno(){
-  if(!records.length) return 1;
-  return Math.max(...records.map(r=>parseInt(r.seqno)||0))+1;
+  /* 관리자는 전체, 일반 사용자는 본인 자료 기준 */
+  const base = isAdmin ? records : records.filter(r => r.author === currentWorker);
+  if(!base.length) return 1;
+  return Math.max(...base.map(r=>parseInt(r.seqno)||0))+1;
 }
 
 /* 블록 조합(대+중+소)이 같은 레코드들 중 최대 seqno+1 반환 */
@@ -7576,10 +7596,13 @@ function getNextSeqnoForBlock(){
                   ? document.getElementById('dt-smallblock').value.trim()
                   : document.getElementById('f-smallblock').value;
 
+  /* 관리자는 전체, 일반 사용자는 본인 자료 기준 */
+  const base = isAdmin ? records : records.filter(r => r.author === currentWorker);
+
   /* 블록값이 하나도 없으면 전체 기준 */
   if(!big && !mid && !small) return getNextSeqno();
 
-  const matched = records.filter(r =>
+  const matched = base.filter(r =>
     (r.bigblock||'') === big &&
     (r.midblock||'') === mid &&
     (r.smallblock||'') === small
@@ -7798,7 +7821,7 @@ function selValveState(v){
   document.getElementById('oc-possible').classList.toggle('on',selValveStateVal==='개폐가능');
   document.getElementById('oc-impossible').classList.toggle('on',selValveStateVal==='개폐불가');
   applyValveSectionDisabled(selValveStateVal==='개폐불가');
-  applyVremarkDisabled(selValveStateVal!=='개폐불가');
+  applyVremarkDisabled(false);
 }
 
 function syncVroomMm(){
@@ -7879,6 +7902,135 @@ function applyValveSectionDisabled(disabled){
 }
 
 /* 소형철개 ↔ 맨홀철개 상호 배타 */
+/* ── 이전자료 불러오기 패널 ── */
+function toggleRecentPanel(){
+  const panel = document.getElementById('recentPanel');
+  const isOpen = panel.style.display !== 'none';
+  if(isOpen){
+    panel.style.display = 'none';
+  } else {
+    /* 버튼 위치 기준으로 패널 위치 잡기 */
+    const btn = document.getElementById('recentBtn');
+    const btnRect = btn.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - btnRect.bottom;
+    if(spaceBelow < 320){
+      panel.style.top = (btnRect.top - 10) + 'px';
+      panel.style.transform = 'translateX(-50%) translateY(-100%)';
+    } else {
+      panel.style.top = (btnRect.bottom + 6) + 'px';
+      panel.style.transform = 'translateX(-50%)';
+    }
+    panel.style.display = 'block';
+    renderRecentList('');
+    setTimeout(()=>{ const s=document.getElementById('recentSearch'); if(s){s.value='';s.focus();} },80);
+  }
+}
+
+/* 패널 외부 클릭 시 닫기 */
+document.addEventListener('click', function(e){
+  const panel = document.getElementById('recentPanel');
+  const btn   = document.getElementById('recentBtn');
+  if(!panel || panel.style.display==='none') return;
+  if(!panel.contains(e.target) && !btn.contains(e.target)) panel.style.display='none';
+});
+
+function renderRecentList(query){
+  const list = document.getElementById('recentList');
+  if(!list) return;
+  const q = (query||'').trim().toLowerCase();
+
+  /* 내 자료만 (관리자는 전체) */
+  const myRecords = isAdmin ? records : records.filter(r => r.author === currentWorker);
+
+  /* 최신순 정렬 후 최대 50개 */
+  const sorted = [...myRecords].sort((a,b)=>(parseInt(b.seqno)||0)-(parseInt(a.seqno)||0));
+  const filtered = q
+    ? sorted.filter(r =>
+        (r.mgmtno||'').toLowerCase().includes(q) ||
+        (r.addr||'').toLowerCase().includes(q) ||
+        (r.vtype||'').toLowerCase().includes(q) ||
+        (r.smallblock||'').toLowerCase().includes(q) ||
+        String(r.seqno||'').includes(q)
+      )
+    : sorted;
+
+  const items = filtered.slice(0, 50);
+
+  if(!items.length){
+    list.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted);font-size:12px">검색 결과가 없어요</div>';
+    return;
+  }
+
+  list.innerHTML = items.map(r => {
+    const sub = [r.vtype, r.dia?r.dia+'mm':'', r.vform].filter(Boolean).join(' · ');
+    const blk = [r.bigblock, r.smallblock].filter(Boolean).join(' > ');
+    return `<div onclick="loadRecentRecord('${r.id}')"
+      style="padding:6px 8px;border-radius:6px;cursor:pointer;border-bottom:1px solid #f0f4f8;transition:background .12s"
+      onmouseover="this.style.background='#f0f5ff'" onmouseout="this.style.background=''">
+      <div style="display:flex;align-items:center;gap:4px;margin-bottom:1px">
+        <span style="font-size:9px;background:var(--blue-pale);color:var(--blue-dark);padding:1px 5px;border-radius:5px;font-weight:700">#${r.seqno}</span>
+        <span style="font-size:11px;font-weight:700;color:var(--text);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.mgmtno||r.addr||'(주소없음)'}</span>
+        <span style="font-size:9px;color:var(--muted)">${r.date||''}</span>
+      </div>
+      ${sub ? `<div style="font-size:10px;color:var(--blue-dark)">${sub}</div>` : ''}
+      ${blk ? `<div style="font-size:9px;color:var(--muted)">${blk}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function loadRecentRecord(id){
+  const r = records.find(x => String(x.id) === String(id));
+  if(!r){ showToast('⚠️ 자료를 찾을 수 없어요'); return; }
+
+  /* 날짜·연번·관리번호·GPS·사진은 제외하고 현황 데이터만 복사 */
+  const keep = {
+    bigblock:r.bigblock, midblock:r.midblock, smallblock:r.smallblock,
+    addr:r.addr,
+    vtype:r.vtype, vform:r.vform, drive:r.drive, maker:r.maker,
+    dia:r.dia, material:r.material, installyear:r.installyear,
+    rotation:r.rotation, totalrot:r.totalrot, currot:r.currot, depth:r.depth,
+    smcover:r.smcover, manhole:r.manhole, protbox:r.protbox,
+    vroomSize:r.vroomSize, vremark:r.vremark, notes:r.notes,
+    valveState:r.valveState, oc:r.oc
+  };
+
+  /* setVal 헬퍼 */
+  const sv = (id, val) => { const el=document.getElementById(id); if(el) el.value=val||''; };
+
+  sv('f-bigblock', keep.bigblock); onBigblockChange();
+  sv('f-midblock', keep.midblock); onMidblockChange();
+  sv('f-smallblock', keep.smallblock);
+  sv('f-addr', keep.addr);
+  sv('f-vtype', keep.vtype); onVtypeChange(); updateVformOptions(keep.vtype||'');
+  sv('f-vform', keep.vform);
+  sv('f-drive', keep.drive);
+  sv('f-maker', keep.maker);
+  sv('f-dia', keep.dia);
+  sv('f-material', keep.material);
+  sv('f-installyear', keep.installyear);
+  sv('f-rotation', keep.rotation);
+  sv('f-totalrot', keep.totalrot);
+  sv('f-currot', keep.currot);
+  sv('f-depth', keep.depth);
+  sv('f-smcover', keep.smcover);
+  sv('f-manhole', keep.manhole);
+  sv('f-protbox', keep.protbox);
+  if(keep.vroomSize){
+    const parts = keep.vroomSize.toString().split('x');
+    sv('f-vroom1', parts[0]||''); sv('f-vroom2', parts[1]||''); sv('f-vroom3', parts[2]||'');
+  }
+  sv('f-vremark', keep.vremark);
+  sv('f-notes', keep.notes);
+
+  /* 개폐상태 복원 */
+  if(keep.valveState) selValveState(keep.valveState);
+  if(keep.oc) selOC(keep.oc);
+
+  syncSmcoverManhole();
+  document.getElementById('recentPanel').style.display = 'none';
+  showToast(`📋 #${r.seqno} 자료를 불러왔어요 (날짜·연번 제외)`);
+}
+
 function syncSmcoverManhole(){
   const smSel     = document.getElementById('f-smcover');
   const mhSel     = document.getElementById('f-manhole');
