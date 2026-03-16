@@ -7205,7 +7205,7 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
     <div class="login-logo">🔧</div>
     <div class="login-title">밸브류 관리대장</div>
     <div class="login-sub">현장 조사 입력 시스템<br>이름을 입력하고 시작하세요</div>
-    <input class="login-input" type="text" id="workerNameInput" placeholder="이름 입력" maxlength="10" inputmode="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" oninput="if(!_imeComposing) onWorkerNameInput(this.value)" oncompositionstart="_imeComposing=true" oncompositionend="_imeComposing=false; onWorkerNameInput(this.value)" onkeydown="if(event.key===&#39;Enter&#39; &amp;&amp; loginMode &amp;&amp; !_imeComposing) startWorkerSession()">
+    <input class="login-input" type="text" id="workerNameInput" placeholder="이름 입력" maxlength="10" inputmode="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" oninput="onWorkerNameInput(this.value)" oncompositionstart="_imeComposing=true" oncompositionend="_imeComposing=false; onWorkerNameInput(this.value)" onkeydown="if(event.key===&#39;Enter&#39; &amp;&amp; loginMode &amp;&amp; !_imeComposing) startWorkerSession()">
     <input class="login-input" type="password" id="workerPwInput" placeholder="관리자 비밀번호" style="display:none" onkeydown="if(event.key===&#39;Enter&#39; &amp;&amp; loginMode) startWorkerSession()">
     <!-- 접속 방식 선택 -->
     <div id="loginModeWrap" style="display:none;margin-top:4px">
