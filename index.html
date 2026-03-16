@@ -8131,22 +8131,35 @@ async function reverseGeocode(lat, lng, forceSet) {
       });
     });
 
-    /* 반경 r미터 내 가장 가까운 건물 검색 */
+    /* 반경 r미터 내 가장 가까운 건물 검색
+       카테고리 순서대로 시도: 편의점→음식점→카페→공공기관→마트 */
     const searchNearby = (radius) => new Promise(resolve => {
-      places.keywordSearch(' ', (result, status) => {
-        if (status === kakao.maps.services.Status.OK && result.length > 0) {
-          const sorted = result
-            .filter(p => p.road_address_name || p.address_name)
-            .sort((a, b) => parseFloat(a.distance) - parseFloat(b.distance));
-          resolve(sorted[0] || null);
-        } else {
-          resolve(null);
-        }
-      }, {
-        location: new kakao.maps.LatLng(lat, lng),
-        radius,
-        sort: kakao.maps.services.SortBy.DISTANCE
-      });
+      try {
+        const categories = ['CS2','FD6','CE7','PO3','MT1','SW8','BK9','HP8','PM9'];
+        let tried = 0;
+        const tryNext = () => {
+          if (tried >= categories.length) { resolve(null); return; }
+          const cat = categories[tried++];
+          try {
+            places.categorySearch(cat, (result, status) => {
+              try {
+                if (status === kakao.maps.services.Status.OK && result.length > 0) {
+                  const sorted = result
+                    .filter(p => p.road_address_name || p.address_name)
+                    .sort((a, b) => parseFloat(a.distance) - parseFloat(b.distance));
+                  if (sorted[0]) { resolve(sorted[0]); return; }
+                }
+                tryNext();
+              } catch(e) { tryNext(); }
+            }, {
+              location: new kakao.maps.LatLng(lat, lng),
+              radius,
+              sort: kakao.maps.services.SortBy.DISTANCE
+            });
+          } catch(e) { tryNext(); }
+        };
+        tryNext();
+      } catch(e) { resolve(null); }
     });
 
     /* 브이월드 연속지적도 API — 필지 면적 + 지목 조회 */
